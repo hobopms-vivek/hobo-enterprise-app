@@ -1,0 +1,14 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+.DS_Store
+*.orig.*
+.env
+.env*.local
+# EAS / Play Store secrets — never commit
+google-service-account.json
+*.keystore
+credentials.json
+commandrun.txt

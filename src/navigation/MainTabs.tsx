@@ -1,0 +1,68 @@
+import React, { useCallback, useEffect, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+
+import { colors } from "@/theme";
+import { useAuthStore } from "@/store/useAuthStore";
+import { listNotifications } from "@/api/notifications";
+import type { MainTabParamList } from "@/navigation/types";
+import { DashboardScreen } from "@/screens/DashboardScreen";
+import { TasksScreen } from "@/screens/TasksScreen";
+import { ProfileScreen } from "@/screens/ProfileScreen";
+import { ChatListScreen } from "@/screens/ChatListScreen";
+import { AlertsScreen } from "@/screens/AlertsScreen";
+
+const Tab = createBottomTabNavigator<MainTabParamList>();
+
+const ICONS: Record<keyof MainTabParamList, keyof typeof Ionicons.glyphMap> = {
+  Dashboard: "home",
+  Tasks: "clipboard",
+  Chats: "chatbubbles",
+  Alerts: "notifications",
+  Profile: "person",
+};
+
+export function MainTabs() {
+  const hotels = useAuthStore((s) => s.hotels);
+  const activeHotelId = useAuthStore((s) => s.activeHotelId);
+  const role = hotels.find((h) => h.id === activeHotelId)?.role;
+  const isManager = (role?.level ?? 5) <= 3; // SSA/SA/Admin/Manager
+
+  // Unread notification badge (polled).
+  const [unread, setUnread] = useState(0);
+  const loadUnread = useCallback(async () => {
+    if (!activeHotelId) return;
+    try {
+      const r = await listNotifications(activeHotelId, true);
+      setUnread(r.unread ?? 0);
+    } catch {
+      /* ignore */
+    }
+  }, [activeHotelId]);
+  useEffect(() => {
+    void loadUnread();
+    const t = setInterval(loadUnread, 20000);
+    return () => clearInterval(t);
+  }, [loadUnread]);
+
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerStyle: { backgroundColor: colors.navy },
+        headerTitleStyle: { color: "#fff", fontWeight: "700" },
+        headerTintColor: "#fff",
+        tabBarActiveTintColor: colors.blue,
+        tabBarInactiveTintColor: colors.muted,
+        tabBarIcon: ({ color, size }) => <Ionicons name={ICONS[route.name]} color={color} size={size} />,
+      })}
+    >
+      <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen name="Tasks" component={TasksScreen} />
+      <Tab.Screen name="Chats" component={ChatListScreen} />
+      {isManager ? (
+        <Tab.Screen name="Alerts" component={AlertsScreen} options={{ tabBarBadge: unread || undefined }} />
+      ) : null}
+      <Tab.Screen name="Profile" component={ProfileScreen} />
+    </Tab.Navigator>
+  );
+}

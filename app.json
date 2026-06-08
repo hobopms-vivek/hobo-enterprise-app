@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Hobo Enterprise",
+    "slug": "hobo-enterprise-app",
+    "version": "1.0.0",
+    "runtimeVersion": { "policy": "fingerprint" },
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "hoboenterprise",
+    "backgroundColor": "#0B2A5B",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hobostays.enterprise",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.hobostays.enterprise",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE"
+      ]
+    },
+    "plugins": [
+      "expo-notifications",
+      ["expo-camera", { "cameraPermission": "Camera is used to scan room QR codes and capture task photos." }],
+      ["expo-image-picker", { "cameraPermission": "Camera is used to capture task photos.", "photosPermission": "Photos are used to attach task images." }]
+    ],
+    "extra": {
+      "apiBaseUrl": ""
+    }
+  }
+}
