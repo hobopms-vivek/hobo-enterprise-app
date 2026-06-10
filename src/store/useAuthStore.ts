@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { setAuthToken } from "@/api/client";
+import { setAuthToken, setOnUnauthorized } from "@/api/client";
 import { login as apiLogin, logout as apiLogout, type AuthUser } from "@/api/auth";
 import { myHotels, type MyHotel } from "@/api/hotels";
 import { Session } from "@/services/session";
@@ -29,6 +29,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   error: null,
 
   init: async () => {
+    // Any 401 from the API (expired/revoked token) drops the session → Login.
+    setOnUnauthorized(() => {
+      void Session.clear();
+      setAuthToken(null);
+      set({ status: "signedOut", user: null, hotels: [], activeHotelId: null, error: "Session expired — please sign in again." });
+    });
     const token = await Session.getToken();
     if (!token) {
       set({ status: "signedOut" });

@@ -2,7 +2,10 @@ import { API_BASE, API_URL } from "@/config";
 import { getAuthToken } from "@/api/client";
 
 /** Upload a local image uri to the hotel's upload endpoint → absolute URL. */
+const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+
 export async function uploadImage(hotelId: string, uri: string, mime = "image/jpeg"): Promise<string> {
+  if (!ALLOWED_MIME.includes(mime)) throw new Error("Unsupported image type — use JPEG, PNG, WebP or HEIC.");
   const token = getAuthToken();
   const name = uri.split("/").pop() || "photo.jpg";
   const form = new FormData();

@@ -34,7 +34,9 @@ export function useRealtime(hotelId: string | null, onEvent: (e: RealtimeEvent) 
     if (!token) return;
 
     const url = `${API_URL}/hotels/${hotelId}/realtime?token=${encodeURIComponent(token)}`;
-    const es = new EventSource<RealtimeType>(url, { pollingInterval: 0, lineEndingCharacter: "\n" });
+    // pollingInterval > 0 makes react-native-sse auto-reconnect after a drop
+    // (network loss / server restart) instead of going silently dead.
+    const es = new EventSource<RealtimeType>(url, { pollingInterval: 5000, lineEndingCharacter: "\n" });
 
     const handlers = TYPES.map((t) => {
       const h = (event: { type: string; data?: string | null }) => {

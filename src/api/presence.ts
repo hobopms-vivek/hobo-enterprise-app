@@ -1,12 +1,15 @@
 import { apiFetch } from "@/api/client";
 
-/** GET/POST /api/hotels/:hotelId/presence — on/off-shift availability. */
-export async function getPresence(hotelId: string): Promise<{ onShift: boolean; onShiftUntil: string | null }> {
-  return apiFetch<{ onShift: boolean; onShiftUntil: string | null }>(`/hotels/${hotelId}/presence`);
+/** GET /api/hotels/:hotelId/presence — own status, or another user's (manager+). */
+export async function getPresence(hotelId: string, userId?: string): Promise<{ userId?: string; onShift: boolean; onShiftUntil: string | null }> {
+  const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  return apiFetch<{ userId?: string; onShift: boolean; onShiftUntil: string | null }>(`/hotels/${hotelId}/presence${q}`);
 }
 
-export async function setPresence(hotelId: string, onShift: boolean): Promise<{ onShift: boolean }> {
-  return apiFetch<{ onShift: boolean }>(`/hotels/${hotelId}/presence`, { method: "POST", body: { onShift } });
+/** POST presence. Pass `userId` (manager+ only) to activate/deactivate ANOTHER
+ *  staffer — deactivating them releases + reassigns their open tasks. */
+export async function setPresence(hotelId: string, onShift: boolean, userId?: string): Promise<{ onShift: boolean; reassigned?: number }> {
+  return apiFetch<{ onShift: boolean; reassigned?: number }>(`/hotels/${hotelId}/presence`, { method: "POST", body: { onShift, ...(userId ? { userId } : {}) } });
 }
 
 /** POST /api/hotels/:hotelId/push/devices — register this device's Expo push token. */

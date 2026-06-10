@@ -18,6 +18,7 @@ export function ProfileScreen() {
   const signOut = useAuthStore((s) => s.signOut);
   const navigation = useNavigation<AppNav>();
   const hotel = hotels.find((h) => h.id === activeHotelId) ?? null;
+  const isStaff = (hotel?.role?.level ?? 5) <= 4; // not a read-only Visitor
 
   const [onShift, setOnShift] = useState(false);
   const [presenceBusy, setPresenceBusy] = useState(false);
@@ -95,15 +96,17 @@ export function ProfileScreen() {
         <Text style={styles.email}>{user?.email ?? ""}</Text>
       </View>
 
-      <View style={styles.section}>
-        <View style={styles.rowBetween}>
-          <View>
-            <Text style={styles.rowTitle}>On shift</Text>
-            <Text style={styles.rowSub}>Available for task assignment</Text>
+      {isStaff ? (
+        <View style={styles.section}>
+          <View style={styles.rowBetween}>
+            <View>
+              <Text style={styles.rowTitle}>On shift</Text>
+              <Text style={styles.rowSub}>Available for task assignment</Text>
+            </View>
+            <Switch value={onShift} onValueChange={togglePresence} disabled={presenceBusy} trackColor={{ true: colors.green }} />
           </View>
-          <Switch value={onShift} onValueChange={togglePresence} disabled={presenceBusy} trackColor={{ true: colors.green }} />
         </View>
-      </View>
+      ) : null}
 
       <Pressable style={styles.section} onPress={() => navigation.navigate("Team")}>
         <View style={styles.rowBetween}>

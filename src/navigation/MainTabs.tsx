@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { useFocusEffect } from "@react-navigation/native";
 
 import { colors } from "@/theme";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -25,8 +26,13 @@ const ICONS: Record<keyof MainTabParamList, keyof typeof Ionicons.glyphMap> = {
 export function MainTabs() {
   const hotels = useAuthStore((s) => s.hotels);
   const activeHotelId = useAuthStore((s) => s.activeHotelId);
-  const role = hotels.find((h) => h.id === activeHotelId)?.role;
-  const isManager = (role?.level ?? 5) <= 3; // SSA/SA/Admin/Manager
+  const hotel = hotels.find((h) => h.id === activeHotelId);
+  const roleLevel = hotel?.role?.level ?? 5;
+  const isManager = roleLevel <= 3; // SSA/SA/Admin/Manager
+  const isStaff = roleLevel <= 4; // working staff (not read-only Visitor)
+  // Respect the hotel's enabled modules (parity with web moduleOn). Service
+  // tickets + alerts live under the WhatsApp module; hide them if it's off.
+  const tasksOn = (hotel?.enabledModules?.includes("whatsapp") ?? true) && isStaff;
 
   // Unread notification badge (polled).
   const [unread, setUnread] = useState(0);
@@ -39,11 +45,15 @@ export function MainTabs() {
       /* ignore */
     }
   }, [activeHotelId]);
-  useEffect(() => {
-    void loadUnread();
-    const t = setInterval(loadUnread, 20000);
-    return () => clearInterval(t);
-  }, [loadUnread]);
+  // Poll the unread badge only while the tabs are focused — pause on a pushed
+  // screen so we don't keep hitting the API in the background.
+  useFocusEffect(
+    useCallback(() => {
+      void loadUnread();
+      const t = setInterval(loadUnread, 20000);
+      return () => clearInterval(t);
+    }, [loadUnread]),
+  );
 
   return (
     <Tab.Navigator
@@ -57,9 +67,9 @@ export function MainTabs() {
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Tasks" component={TasksScreen} />
-      <Tab.Screen name="Chats" component={ChatListScreen} />
-      {isManager ? (
+      {tasksOn ? <Tab.Screen name="Tasks" component={TasksScreen} /> : null}
+      {isStaff ? <Tab.Screen name="Chats" component={ChatListScreen} /> : null}
+      {isManager && tasksOn ? (
         <Tab.Screen name="Alerts" component={AlertsScreen} options={{ tabBarBadge: unread || undefined }} />
       ) : null}
       <Tab.Screen name="Profile" component={ProfileScreen} />

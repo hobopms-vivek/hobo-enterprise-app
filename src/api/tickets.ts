@@ -47,8 +47,11 @@ export type TicketAction =
   | "reject"
   | "resolve";
 
-export async function listTickets(hotelId: string, status?: string): Promise<Ticket[]> {
-  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+export async function listTickets(hotelId: string, opts?: { status?: string; mine?: boolean }): Promise<Ticket[]> {
+  const p = new URLSearchParams();
+  if (opts?.status) p.set("status", opts.status);
+  if (opts?.mine) p.set("mine", "1"); // attendants see only their own assigned tasks
+  const qs = p.toString() ? `?${p.toString()}` : "";
   const r = await apiFetch<{ items: Ticket[] }>(`/hotels/${hotelId}/whatsapp/tickets${qs}`);
   return r.items ?? [];
 }

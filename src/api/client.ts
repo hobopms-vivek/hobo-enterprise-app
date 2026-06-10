@@ -14,6 +14,14 @@ export function getAuthToken(): string | null {
   return authToken;
 }
 
+// Registered by the auth store. Fires when ANY request gets 401 (token expired
+// or revoked) so the app drops the session and returns to the login screen
+// instead of silently showing empty data.
+let onUnauthorized: (() => void) | null = null;
+export function setOnUnauthorized(fn: (() => void) | null): void {
+  onUnauthorized = fn;
+}
+
 export class ApiError extends Error {
   status: number;
   details?: unknown;
@@ -45,6 +53,10 @@ export async function apiFetch<T = unknown>(path: string, opts: Options = {}): P
 
   const text = await res.text();
   const data = text ? safeJson(text) : null;
+  if (res.status === 401 && authToken) {
+    // Session no longer valid → force logout (the store clears + routes to login).
+    onUnauthorized?.();
+  }
   if (!res.ok) {
     const message = (data && typeof data === "object" && "error" in data && typeof (data as { error: unknown }).error === "string")
       ? (data as { error: string }).error

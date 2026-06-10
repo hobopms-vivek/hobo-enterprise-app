@@ -1,9 +1,9 @@
-import React, { useRef } from "react";
+import React, { useCallback, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { type AppNav } from "@/navigation/types";
 import { colors } from "@/theme";
 
@@ -21,6 +21,14 @@ export function QRScanScreen() {
   const navigation = useNavigation<AppNav>();
   const [permission, requestPermission] = useCameraPermissions();
   const scannedRef = useRef(false);
+
+  // Re-arm the scanner each time the screen regains focus — otherwise after one
+  // scan + navigate, returning here leaves scannedRef stuck true (no re-scan).
+  useFocusEffect(
+    useCallback(() => {
+      scannedRef.current = false;
+    }, []),
+  );
 
   function onBarcodeScanned(result: BarcodeScanningResult) {
     if (scannedRef.current) return;

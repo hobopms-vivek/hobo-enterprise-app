@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 
@@ -18,36 +18,45 @@ const BUCKETS: { key: Bucket; label: string; statuses: string[] }[] = [
   { key: "done", label: "Done", statuses: ["RESOLVED", "CLOSED"] },
 ];
 
-// The attendant field-workflow + manager actions (mirror the enterprise lifecycle).
-function actionsFor(t: Ticket): { label: string; action: TicketAction; color: string }[] {
-  const step = t.workflowStep ?? "PENDING";
+// Hobo-exp parity: a task is AUTO-ACCEPTED on assignment, so the assignee never
+// taps "Accept" — their first button is "Start" (→ en route), then "Complete".
+// A manager (level ≤ 3) is the one who Approves/Rejects a completed task.
+function fieldActions(t: Ticket, me: string | undefined, isManager: boolean): { label: string; action: TicketAction; color: string }[] {
   if (t.status === "RESOLVED" || t.status === "CLOSED") return [];
+  const step = t.workflowStep ?? "ACCEPTED";
   if (step === "DONE") {
-    return [
-      { label: "Approve", action: "approve", color: colors.green },
-      { label: "Reject", action: "reject_done", color: colors.red },
-    ];
+    if (isManager) {
+      return [
+        { label: "Approve", action: "approve", color: colors.green },
+        { label: "Reject", action: "reject_done", color: colors.red },
+      ];
+    }
+    return []; // assignee just waits for the manager to approve
   }
-  switch (step) {
-    case "ACCEPTED":
-      return [{ label: "On the way", action: "en_route", color: colors.blue }];
-    case "EN_ROUTE":
-      return [{ label: "Reached", action: "at_location", color: colors.blue }];
-    case "AT_LOCATION":
-      return [{ label: "Mark done", action: "done", color: colors.green }];
-    default:
-      return [{ label: "Accept", action: "accept", color: colors.blue }];
+  if (t.assignedToId && t.assignedToId === me) {
+    if (step === "EN_ROUTE" || step === "AT_LOCATION") return [{ label: "Complete Task", action: "done", color: colors.green }];
+    return [{ label: "Start", action: "en_route", color: colors.blue }]; // PENDING / ACCEPTED
   }
+  return [];
 }
 
 export function TasksScreen() {
   const hotelId = useAuthStore((s) => s.activeHotelId);
+  const me = useAuthStore((s) => s.user?.id);
+  const hotels = useAuthStore((s) => s.hotels);
+  const roleLevel = hotels.find((h) => h.id === hotelId)?.role?.level ?? 5;
+  const isManager = roleLevel <= 3; // SSA/SA/Admin/Manager
+  const isAttendant = roleLevel >= 4; // attendants see only their own tasks
   const navigation = useNavigation<AppNav>();
   const [bucket, setBucket] = useState<Bucket>("new");
   const [items, setItems] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  // Tracks the hotel a fetch was started for, so a response that lands after the
+  // user switched hotels can be discarded instead of overwriting the new list.
+  const hotelIdRef = useRef(hotelId);
+  useEffect(() => { hotelIdRef.current = hotelId; }, [hotelId]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
@@ -56,34 +65,40 @@ export function TasksScreen() {
   const load = useCallback(async () => {
     if (!hotelId) return;
     setLoading(true);
+    const forHotel = hotelId;
     try {
-      setItems(await listTickets(hotelId));
+      const data = await listTickets(forHotel, { mine: isAttendant });
+      if (forHotel !== hotelIdRef.current) return; // hotel switched mid-flight — drop stale data
+      setItems(data);
     } catch {
-      setItems([]);
+      if (forHotel === hotelIdRef.current) setItems([]);
     } finally {
-      setLoading(false);
+      if (forHotel === hotelIdRef.current) setLoading(false);
     }
-  }, [hotelId]);
+  }, [hotelId, isAttendant]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Header actions: New Task + QR scan.
+  // Header actions: New Task + QR scan — only managers create/assign tasks
+  // (attendants receive them; read-only roles get nothing).
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
-        <View style={{ flexDirection: "row", gap: 18, paddingRight: 4 }}>
-          <Pressable onPress={() => navigation.navigate("QRScan")} hitSlop={8}>
-            <Ionicons name="qr-code-outline" size={22} color="#fff" />
-          </Pressable>
-          <Pressable onPress={() => navigation.navigate("CreateTask")} hitSlop={8}>
-            <Ionicons name="add" size={26} color="#fff" />
-          </Pressable>
-        </View>
-      ),
+      headerRight: isManager
+        ? () => (
+            <View style={{ flexDirection: "row", gap: 18, paddingRight: 4 }}>
+              <Pressable onPress={() => navigation.navigate("QRScan")} hitSlop={8}>
+                <Ionicons name="qr-code-outline" size={22} color="#fff" />
+              </Pressable>
+              <Pressable onPress={() => navigation.navigate("CreateTask")} hitSlop={8}>
+                <Ionicons name="add" size={26} color="#fff" />
+              </Pressable>
+            </View>
+          )
+        : undefined,
     });
-  }, [navigation]);
+  }, [navigation, isManager]);
 
   // Live refresh + buzz when a ticket is assigned/updated on this hotel.
   useRealtime(hotelId, (e) => {
@@ -108,8 +123,8 @@ export function TasksScreen() {
     try {
       await actOnTicket(hotelId, t.id, action, action === "done" ? { delivered: true } : undefined);
       await load();
-    } catch {
-      // keep list as-is; a toast layer can be added later
+    } catch (e) {
+      Alert.alert("Action failed", e instanceof Error ? e.message : "Please try again.");
     } finally {
       setBusyId(null);
     }
@@ -162,7 +177,7 @@ export function TasksScreen() {
                 </View>
               </Pressable>
               <View style={styles.actions}>
-                {actionsFor(item).map((a) => (
+                {fieldActions(item, me, isManager).map((a) => (
                   <Pressable
                     key={a.action}
                     onPress={() => act(item, a.action)}
@@ -172,6 +187,9 @@ export function TasksScreen() {
                     <Text style={styles.actionText}>{a.label}</Text>
                   </Pressable>
                 ))}
+                {item.workflowStep === "DONE" && item.assignedToId === me && !isManager ? (
+                  <Text style={styles.awaiting}>⏳ Awaiting manager approval</Text>
+                ) : null}
               </View>
             </View>
           )}
@@ -209,6 +227,7 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" },
   actionBtn: { borderRadius: 9, paddingHorizontal: 14, paddingVertical: 9 },
   actionText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  awaiting: { color: colors.amber, fontSize: 12, fontWeight: "700", alignSelf: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30, gap: 8 },
   centerText: { color: colors.muted, fontSize: 14 },
 });

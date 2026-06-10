@@ -27,26 +27,26 @@ import { colors, priorityColor, statusColor } from "@/theme";
 
 type StepAction = { label: string; action: TicketAction; color: string; extra?: { delivered: boolean } };
 
-// Mirror TasksScreen.actionsFor: step-driven primary action(s).
-function stepActionsFor(t: TicketDetail): StepAction[] {
-  const step = t.workflowStep ?? "PENDING";
+// Hobo-exp parity: auto-accepted on assignment → assignee's first button is
+// "Start" (en route), then "Complete Task". A manager Approves/Rejects a DONE
+// task; the assignee just sees "awaiting approval".
+function stepActionsFor(t: TicketDetail, me: string | undefined, isManager: boolean): StepAction[] {
   if (t.status === "RESOLVED" || t.status === "CLOSED") return [];
+  const step = t.workflowStep ?? "ACCEPTED";
   if (step === "DONE") {
-    return [
-      { label: "Approve", action: "approve", color: colors.green },
-      { label: "Reject", action: "reject_done", color: colors.red },
-    ];
+    if (isManager) {
+      return [
+        { label: "Approve", action: "approve", color: colors.green },
+        { label: "Reject", action: "reject_done", color: colors.red },
+      ];
+    }
+    return [];
   }
-  switch (step) {
-    case "ACCEPTED":
-      return [{ label: "On the way", action: "en_route", color: colors.blue }];
-    case "EN_ROUTE":
-      return [{ label: "Reached", action: "at_location", color: colors.blue }];
-    case "AT_LOCATION":
-      return [{ label: "Mark done", action: "done", color: colors.green, extra: { delivered: true } }];
-    default:
-      return [{ label: "Accept", action: "accept", color: colors.blue }];
+  if (t.assignedToId && t.assignedToId === me) {
+    if (step === "EN_ROUTE" || step === "AT_LOCATION") return [{ label: "Complete Task", action: "done", color: colors.green, extra: { delivered: true } }];
+    return [{ label: "Start", action: "en_route", color: colors.blue }];
   }
+  return [];
 }
 
 function isTerminal(t: TicketDetail): boolean {
@@ -66,6 +66,10 @@ function formatTime(iso: string): string {
 
 export function TicketDetailScreen() {
   const hotelId = useAuthStore((s) => s.activeHotelId);
+  const me = useAuthStore((s) => s.user?.id);
+  const hotels = useAuthStore((s) => s.hotels);
+  const roleLevel = hotels.find((h) => h.id === hotelId)?.role?.level ?? 5;
+  const isManager = roleLevel <= 3;
   const navigation = useNavigation<AppNav>();
   const route = useRoute<RouteProp<AppStackParamList, "TicketDetail">>();
   const ticketId = route.params.ticketId;
@@ -149,7 +153,8 @@ export function TicketDetailScreen() {
     setReassignOpen(true);
     setPickerLoading(true);
     try {
-      setMembers(await listMembers(hotelId));
+      // Only offer ACTIVE staff as reassign targets (a disabled account would reject).
+      setMembers((await listMembers(hotelId)).filter((m) => m.isActive));
     } catch {
       setMembers([]);
     } finally {
@@ -199,7 +204,10 @@ export function TicketDetailScreen() {
     );
   }
 
-  const stepActions = stepActionsFor(ticket);
+  const stepActions = stepActionsFor(ticket, me, isManager);
+  // "working" = assigned to me AND not yet handed off for approval → photo +
+  // not-completed controls only show while actually doing the task.
+  const isAssignee = !!ticket.assignedToId && ticket.assignedToId === me && ticket.workflowStep !== "DONE" && ticket.workflowStep !== "APPROVED";
   const terminal = isTerminal(ticket);
   const statusLabel =
     ticket.workflowStep && ticket.status !== "RESOLVED" ? ticket.workflowStep : ticket.status;
@@ -281,27 +289,33 @@ export function TicketDetailScreen() {
                 <Text style={styles.actionText}>{a.label}</Text>
               </Pressable>
             ))}
-            <Pressable
-              onPress={() => void onAddPhoto()}
-              disabled={busy || uploading}
-              style={[styles.actionBtn, styles.outlineBtn, { opacity: busy || uploading ? 0.6 : 1 }]}
-            >
-              <Text style={styles.outlineText}>{uploading ? "Uploading…" : `Take photo${pendingPhotos.length ? ` (${pendingPhotos.length})` : ""}`}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => void openReassign()}
-              disabled={busy}
-              style={[styles.actionBtn, styles.outlineBtn, { opacity: busy ? 0.6 : 1 }]}
-            >
-              <Text style={styles.outlineText}>Reassign</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => void openTransfer()}
-              disabled={busy}
-              style={[styles.actionBtn, styles.outlineBtn, { opacity: busy ? 0.6 : 1 }]}
-            >
-              <Text style={styles.outlineText}>Transfer</Text>
-            </Pressable>
+            {isAssignee ? (
+              <Pressable
+                onPress={() => void onAddPhoto()}
+                disabled={busy || uploading}
+                style={[styles.actionBtn, styles.outlineBtn, { opacity: busy || uploading ? 0.6 : 1 }]}
+              >
+                <Text style={styles.outlineText}>{uploading ? "Uploading…" : `Take photo${pendingPhotos.length ? ` (${pendingPhotos.length})` : ""}`}</Text>
+              </Pressable>
+            ) : null}
+            {isManager ? (
+              <>
+                <Pressable
+                  onPress={() => void openReassign()}
+                  disabled={busy}
+                  style={[styles.actionBtn, styles.outlineBtn, { opacity: busy ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.outlineText}>Reassign</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void openTransfer()}
+                  disabled={busy}
+                  style={[styles.actionBtn, styles.outlineBtn, { opacity: busy ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.outlineText}>Transfer</Text>
+                </Pressable>
+              </>
+            ) : null}
           </View>
 
           {pendingPhotos.length > 0 ? (
@@ -312,22 +326,29 @@ export function TicketDetailScreen() {
             </View>
           ) : null}
 
-          {/* Re-attempt with reason */}
-          <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Re-attempt</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Reason (optional)"
-            placeholderTextColor={colors.muted}
-            value={reattemptReason}
-            onChangeText={setReattemptReason}
-          />
-          <Pressable
-            onPress={() => void onReattempt()}
-            disabled={busy}
-            style={[styles.actionBtn, { backgroundColor: colors.amber, marginTop: 8, opacity: busy ? 0.6 : 1 }]}
-          >
-            <Text style={styles.actionText}>Re-attempt</Text>
-          </Pressable>
+          {/* Re-attempt with reason — only the assignee, while working the task
+              (guest asked to come back later → "Not completed" in Hobo-exp). */}
+          {isAssignee ? (
+            <>
+              <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Couldn&apos;t complete? (re-attempt)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Reason (e.g. guest not in room)"
+                placeholderTextColor={colors.muted}
+                value={reattemptReason}
+                onChangeText={setReattemptReason}
+              />
+              <Pressable
+                onPress={() => void onReattempt()}
+                disabled={busy}
+                style={[styles.actionBtn, { backgroundColor: colors.amber, marginTop: 8, opacity: busy ? 0.6 : 1 }]}
+              >
+                <Text style={styles.actionText}>Mark not completed</Text>
+              </Pressable>
+            </>
+          ) : null}
+
+          {ticket.workflowStep === "DONE" && !isManager ? <Text style={[styles.meta, { marginTop: 12, textAlign: "center", color: colors.amber, fontWeight: "700" }]}>⏳ Awaiting manager approval</Text> : null}
 
           {busy ? <ActivityIndicator style={{ marginTop: 12 }} color={colors.blue} /> : null}
         </View>

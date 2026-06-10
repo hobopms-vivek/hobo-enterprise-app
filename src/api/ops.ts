@@ -58,9 +58,15 @@ export type RoomBlock = {
   room?: { roomNumber: string } | null;
   createdAt: string;
 };
+type RawRoomBlock = { id: string; reason: string | null; blockType?: string | null; fromDate?: string | null; toDate?: string | null; room?: { roomNumber: string } | null; createdAt: string };
 export async function listRoomBlocks(hotelId: string): Promise<RoomBlock[]> {
-  const r = await apiFetch<{ items: RoomBlock[] }>(`/hotels/${hotelId}/rooms/blocks`);
-  return r.items ?? [];
+  const r = await apiFetch<{ items: RawRoomBlock[] }>(`/hotels/${hotelId}/rooms/blocks`);
+  // The API uses fromDate/toDate; expose them as startDate/endDate for the UI.
+  return (r.items ?? []).map((b) => ({
+    id: b.id, reason: b.reason, blockType: b.blockType ?? null,
+    startDate: b.fromDate ?? null, endDate: b.toDate ?? null,
+    room: b.room ?? null, createdAt: b.createdAt,
+  }));
 }
 
 // ─── Inventory items (read-only stock view) ───

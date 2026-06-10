@@ -1,7 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 
-/** Persisted auth/session storage (token + chosen hotel). */
-const TOKEN_KEY = "hobo.token";
+/** Persisted auth/session storage. The bearer token lives in the OS keychain
+ * (SecureStore); the chosen hotel + non-secret user profile stay in AsyncStorage. */
+const TOKEN_KEY = "hobo_token"; // SecureStore key: alphanumeric / . - _ only
 const HOTEL_KEY = "hobo.activeHotelId";
 const USER_KEY = "hobo.user";
 
@@ -9,11 +11,11 @@ export type StoredUser = { id: string; email: string; fullName: string; isPlatfo
 
 export const Session = {
   async getToken(): Promise<string | null> {
-    return AsyncStorage.getItem(TOKEN_KEY);
+    return SecureStore.getItemAsync(TOKEN_KEY);
   },
   async setToken(token: string | null): Promise<void> {
-    if (token) await AsyncStorage.setItem(TOKEN_KEY, token);
-    else await AsyncStorage.removeItem(TOKEN_KEY);
+    if (token) await SecureStore.setItemAsync(TOKEN_KEY, token);
+    else await SecureStore.deleteItemAsync(TOKEN_KEY);
   },
   async getActiveHotelId(): Promise<string | null> {
     return AsyncStorage.getItem(HOTEL_KEY);
@@ -31,6 +33,7 @@ export const Session = {
     else await AsyncStorage.removeItem(USER_KEY);
   },
   async clear(): Promise<void> {
-    await AsyncStorage.multiRemove([TOKEN_KEY, HOTEL_KEY, USER_KEY]);
+    await SecureStore.deleteItemAsync(TOKEN_KEY);
+    await AsyncStorage.multiRemove([HOTEL_KEY, USER_KEY]);
   },
 };

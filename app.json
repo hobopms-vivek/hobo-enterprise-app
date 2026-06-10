@@ -3,12 +3,16 @@
     "name": "Hobo Enterprise",
     "slug": "hobo-enterprise-app",
     "version": "1.0.0",
-    "runtimeVersion": { "policy": "fingerprint" },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "hoboenterprise",
     "backgroundColor": "#0B2A5B",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.hobostays.enterprise",
@@ -23,16 +27,43 @@
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
       "expo-notifications",
-      ["expo-camera", { "cameraPermission": "Camera is used to scan room QR codes and capture task photos." }],
-      ["expo-image-picker", { "cameraPermission": "Camera is used to capture task photos.", "photosPermission": "Photos are used to attach task images." }]
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Camera is used to scan room QR codes and capture task photos."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Camera is used to capture task photos.",
+          "photosPermission": "Photos are used to attach task images."
+        }
+      ],
+      "expo-secure-store"
     ],
     "extra": {
-      "apiBaseUrl": ""
+      "apiBaseUrl": "",
+      "eas": {
+        "projectId": "7d7496af-2640-4ad2-9399-735368634238"
+      }
+    },
+    "owner": "hobopmss-organization",
+    "updates": {
+      "url": "https://u.expo.dev/7d7496af-2640-4ad2-9399-735368634238"
     }
   }
 }

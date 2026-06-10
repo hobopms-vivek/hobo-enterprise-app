@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -14,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useAuthStore } from "@/store/useAuthStore";
 import { listMessages, sendMessage, type ChatMessage } from "@/api/chat";
-import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { AppNav, AppStackParamList } from "@/navigation/types";
 import { colors } from "@/theme";
 
@@ -35,6 +36,9 @@ export function ChatRoomScreen() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList<ChatMessage>>(null);
+  // Tracks the current hotel so a response that lands after a hotel switch is dropped.
+  const hotelIdRef = useRef(hotelId);
+  useEffect(() => { hotelIdRef.current = hotelId; }, [hotelId]);
 
   useLayoutEffect(() => {
     navigation.setOptions({ title: name });
@@ -47,24 +51,30 @@ export function ChatRoomScreen() {
   const load = useCallback(
     async (showSpinner: boolean) => {
       if (!hotelId) return;
+      const forHotel = hotelId;
       if (showSpinner) setLoading(true);
       try {
-        const items = await listMessages(hotelId, userId);
+        const items = await listMessages(forHotel, userId);
+        if (forHotel !== hotelIdRef.current) return; // hotel switched mid-load — drop stale messages
         setMessages(items);
       } catch {
-        if (showSpinner) setMessages([]);
+        if (showSpinner && forHotel === hotelIdRef.current) setMessages([]);
       } finally {
-        if (showSpinner) setLoading(false);
+        if (showSpinner && forHotel === hotelIdRef.current) setLoading(false);
       }
     },
     [hotelId, userId],
   );
 
-  useEffect(() => {
-    void load(true);
-    const timer = setInterval(() => void load(false), 5000);
-    return () => clearInterval(timer);
-  }, [load]);
+  // Poll only while this screen is focused — stop on blur/navigate-away so we
+  // don't drain battery or fire requests for a chat the user has left.
+  useFocusEffect(
+    useCallback(() => {
+      void load(true);
+      const timer = setInterval(() => void load(false), 5000);
+      return () => clearInterval(timer);
+    }, [load]),
+  );
 
   useEffect(() => {
     if (messages.length > 0) scrollToEnd();
@@ -79,8 +89,9 @@ export function ChatRoomScreen() {
       const msg = await sendMessage(hotelId, userId, body);
       setMessages((prev) => [...prev, msg]);
       await load(false);
-    } catch {
+    } catch (e) {
       setText(body); // restore on failure
+      Alert.alert("Message not sent", e instanceof Error ? e.message : "Please try again.");
     } finally {
       setSending(false);
     }
