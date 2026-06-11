@@ -1,0 +1,48 @@
+name: EAS OTA Update
+
+# Auto-publish an over-the-air (JS) update whenever app code is pushed:
+#   push to staging → staging channel (staging app)
+#   push to main    → production channel (prod app)
+# Native changes (new fingerprint) won't apply to old installs — rebuild + reupload
+# to the Play Store manually for those.
+#
+# Requires a repo secret EXPO_TOKEN (Expo dashboard → Access tokens).
+
+on:
+  push:
+    branches: [staging, main]
+
+jobs:
+  update:
+    name: Publish OTA update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve channel from branch
+        id: channel
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "name=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish update
+        run: eas update --branch ${{ steps.channel.outputs.name }} --message "${{ github.event.head_commit.message }}" --non-interactive
