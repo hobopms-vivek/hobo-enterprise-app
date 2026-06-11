@@ -10,15 +10,20 @@
       "channel": "development",
       "android": {
         "buildType": "apk"
-      }
-    },
-    "preview": {
-      "distribution": "internal",
-      "channel": "preview",
-      "android": {
-        "buildType": "apk"
       },
       "env": {
+        "APP_VARIANT": "development"
+      }
+    },
+    "staging": {
+      "distribution": "internal",
+      "channel": "staging",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "APP_VARIANT": "staging",
         "EXPO_PUBLIC_API_BASE_URL": "https://hobo-enterprise-production.up.railway.app"
       }
     },
@@ -29,11 +34,18 @@
         "buildType": "app-bundle"
       },
       "env": {
+        "APP_VARIANT": "production",
         "EXPO_PUBLIC_API_BASE_URL": "https://REPLACE-WITH-YOUR-PROD-DOMAIN"
       }
     }
   },
   "submit": {
+    "staging": {
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "internal"
+      }
+    },
     "production": {
       "android": {
         "serviceAccountKeyPath": "./google-service-account.json",
