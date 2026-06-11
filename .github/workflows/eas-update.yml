@@ -3,6 +3,12 @@ name: EAS OTA Update
 # Auto-publish an over-the-air (JS) update whenever app code is pushed:
 #   push to staging → staging channel (staging app)
 #   push to main    → production channel (prod app)
+#
+# IMPORTANT: APP_VARIANT must match the build's variant, because the fingerprint
+# runtimeVersion is derived from native config (app.config.ts varies the package
+# name by APP_VARIANT). If it doesn't match, the OTA won't apply to the build.
+# EXPO_PUBLIC_API_BASE_URL bakes the correct API URL into the JS bundle.
+#
 # Native changes (new fingerprint) won't apply to old installs — rebuild + reupload
 # to the Play Store manually for those.
 #
@@ -35,14 +41,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Resolve channel from branch
-        id: channel
+      - name: Resolve environment from branch
+        id: env
         run: |
           if [ "${{ github.ref_name }}" = "main" ]; then
-            echo "name=production" >> "$GITHUB_OUTPUT"
+            echo "channel=production" >> "$GITHUB_OUTPUT"
+            echo "variant=production" >> "$GITHUB_OUTPUT"
+            echo "apiurl=https://REPLACE-WITH-YOUR-PROD-DOMAIN" >> "$GITHUB_OUTPUT"
           else
-            echo "name=staging" >> "$GITHUB_OUTPUT"
+            echo "channel=staging" >> "$GITHUB_OUTPUT"
+            echo "variant=staging" >> "$GITHUB_OUTPUT"
+            echo "apiurl=https://hobo-enterprise-production.up.railway.app" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Publish update
-        run: eas update --branch ${{ steps.channel.outputs.name }} --message "${{ github.event.head_commit.message }}" --non-interactive
+        env:
+          APP_VARIANT: ${{ steps.env.outputs.variant }}
+          EXPO_PUBLIC_API_BASE_URL: ${{ steps.env.outputs.apiurl }}
+        run: eas update --branch ${{ steps.env.outputs.channel }} --message "${{ github.event.head_commit.message }}" --non-interactive
