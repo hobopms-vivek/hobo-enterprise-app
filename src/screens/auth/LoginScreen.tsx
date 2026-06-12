@@ -29,7 +29,7 @@ export function LoginScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
         <View style={styles.container}>
-          <Image source={require("@/assets/img/logo.png")} style={styles.logo} resizeMode="contain" />
+          <Image source={require("../../assets/img/logo.png")} style={styles.logo} resizeMode="contain" />
           <Text style={styles.title}>Hobo Enterprise</Text>
           <Text style={styles.subtitle}>Staff & operations</Text>
 
