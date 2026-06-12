@@ -8,8 +8,9 @@ import { actOnTicket, listTickets, type Ticket, type TicketAction } from "@/api/
 import { useRealtime } from "@/realtime/useRealtime";
 import { buzzNewTask } from "@/services/alert";
 import { slaLabel } from "@/utils/sla";
+import { EmptyState } from "@/components/ui";
 import type { AppNav } from "@/navigation/types";
-import { colors, priorityColor, statusColor } from "@/theme";
+import { colors, priorityColor, statusColor, shadow } from "@/theme";
 
 type Bucket = "new" | "in_progress" | "done";
 const BUCKETS: { key: Bucket; label: string; statuses: string[] }[] = [
@@ -152,7 +153,7 @@ export function TasksScreen() {
           keyExtractor={(t) => t.id}
           contentContainerStyle={{ padding: 12, paddingBottom: 28 }}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.blue} />}
-          ListEmptyComponent={<Center text="No tasks here." />}
+          ListEmptyComponent={<EmptyState icon="checkmark-done-outline" title="No tasks here" hint="New requests will show up automatically." height={220} />}
           renderItem={({ item }) => (
             <View style={styles.card}>
               <Pressable onPress={() => navigation.navigate("TicketDetail", { ticketId: item.id })}>
@@ -215,7 +216,7 @@ const styles = StyleSheet.create({
   tabActive: { borderBottomColor: colors.blue },
   tabText: { color: colors.muted, fontWeight: "600", fontSize: 13 },
   tabTextActive: { color: colors.blue },
-  card: { backgroundColor: colors.white, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border },
+  card: { backgroundColor: colors.white, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border, ...shadow.card },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   code: { color: colors.muted, fontSize: 12, fontWeight: "700" },
   badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },

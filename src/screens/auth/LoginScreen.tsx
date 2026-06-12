@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuthStore } from "@/store/useAuthStore";
@@ -29,9 +29,7 @@ export function LoginScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
         <View style={styles.container}>
-          <View style={styles.logo}>
-            <Text style={styles.logoMark}>H</Text>
-          </View>
+          <Image source={require("@/assets/img/logo.png")} style={styles.logo} resizeMode="contain" />
           <Text style={styles.title}>Hobo Enterprise</Text>
           <Text style={styles.subtitle}>Staff & operations</Text>
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from "react";
+import { Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
@@ -61,6 +62,8 @@ export function MainTabs() {
         headerStyle: { backgroundColor: colors.navy },
         headerTitleStyle: { color: "#fff", fontWeight: "700" },
         headerTintColor: "#fff",
+        headerLeftContainerStyle: { paddingLeft: 14 },
+        headerLeft: () => <Image source={require("@/assets/img/logo.png")} style={{ width: 28, height: 28, borderRadius: 7 }} resizeMode="contain" />,
         tabBarActiveTintColor: colors.blue,
         tabBarInactiveTintColor: colors.muted,
         tabBarIcon: ({ color, size }) => <Ionicons name={ICONS[route.name]} color={color} size={size} />,

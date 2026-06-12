@@ -12,6 +12,8 @@ import { BlockedRoomsScreen } from "@/screens/BlockedRoomsScreen";
 import { InventoryScreen } from "@/screens/InventoryScreen";
 import { TaskHistoryScreen } from "@/screens/TaskHistoryScreen";
 import { TeamScreen } from "@/screens/TeamScreen";
+import { FrontDeskScreen } from "@/screens/FrontDeskScreen";
+import { HousekeepingScreen } from "@/screens/HousekeepingScreen";
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
 
@@ -34,6 +36,8 @@ export function AppStack() {
       <Stack.Screen name="Inventory" component={InventoryScreen} options={{ title: "Inventory" }} />
       <Stack.Screen name="History" component={TaskHistoryScreen} options={{ title: "Task History" }} />
       <Stack.Screen name="Team" component={TeamScreen} options={{ title: "Team" }} />
+      <Stack.Screen name="FrontDesk" component={FrontDeskScreen} options={{ title: "Front Desk" }} />
+      <Stack.Screen name="Housekeeping" component={HousekeepingScreen} options={{ title: "Housekeeping" }} />
     </Stack.Navigator>
   );
 }

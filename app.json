@@ -10,6 +10,12 @@
     "userInterfaceStyle": "light",
     "scheme": "hoboenterprise",
     "backgroundColor": "#0B2A5B",
+    "icon": "./logo/icon.png",
+    "splash": {
+      "image": "./logo/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B2A5B"
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -23,6 +29,10 @@
     "android": {
       "package": "com.hobostays.enterprise",
       "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./logo/adaptive-icon.png",
+        "backgroundColor": "#0B2A5B"
+      },
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -37,6 +47,9 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
+    },
+    "web": {
+      "favicon": "./logo/favicon.png"
     },
     "plugins": [
       "expo-notifications",

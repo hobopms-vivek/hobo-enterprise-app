@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Switch,
 import { useAuthStore } from "@/store/useAuthStore";
 import { listMembers, type Member } from "@/api/ops";
 import { getPresence, setPresence } from "@/api/presence";
+import { useRealtime } from "@/realtime/useRealtime";
 import { colors } from "@/theme";
 
 export function TeamScreen() {
@@ -38,6 +39,14 @@ export function TeamScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live sync: any presence change (this device, another manager, or the web)
+  // updates the toggle instantly — no refresh needed.
+  useRealtime(hotelId, (e) => {
+    if (e.type !== "presence.changed") return;
+    const p = e.payload as { userId?: string; onShift?: boolean };
+    if (p.userId) setShiftMap((m) => ({ ...m, [p.userId as string]: !!p.onShift }));
+  });
 
   async function toggle(m: Member, next: boolean) {
     if (!hotelId || busyId) return;

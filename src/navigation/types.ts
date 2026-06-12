@@ -11,6 +11,8 @@ export type AppStackParamList = {
   Inventory: undefined;
   History: undefined;
   Team: undefined;
+  FrontDesk: undefined;
+  Housekeeping: undefined;
 };
 
 export type MainTabParamList = {

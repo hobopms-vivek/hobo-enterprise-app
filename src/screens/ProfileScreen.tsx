@@ -6,6 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useAuthStore } from "@/store/useAuthStore";
 import { getPresence, setPresence } from "@/api/presence";
 import { getProfile, updateProfile } from "@/api/profile";
+import { useRealtime } from "@/realtime/useRealtime";
 import { pickAndUpload } from "@/services/photo";
 import type { AppNav } from "@/navigation/types";
 import { colors } from "@/theme";
@@ -58,6 +59,13 @@ export function ProfileScreen() {
   useEffect(() => {
     void loadPresence();
   }, [loadPresence]);
+
+  // Live sync: if a manager/admin (web or app) flips MY shift, reflect it instantly.
+  useRealtime(activeHotelId, (e) => {
+    if (e.type !== "presence.changed") return;
+    const p = e.payload as { userId?: string; onShift?: boolean };
+    if (p.userId && p.userId === user?.id) setOnShift(!!p.onShift);
+  });
 
   async function togglePresence(next: boolean) {
     if (!activeHotelId || presenceBusy) return;
