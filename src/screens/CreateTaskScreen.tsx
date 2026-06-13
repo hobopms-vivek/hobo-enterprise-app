@@ -34,6 +34,8 @@ export function CreateTaskScreen() {
   const [category, setCategory] = useState<Category>("REQUEST");
   const [priority, setPriority] = useState<Priority>("normal");
   const [description, setDescription] = useState("");
+  const [completionMins, setCompletionMins] = useState("");
+  const [slaMins, setSlaMins] = useState("");
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [departmentId, setDepartmentId] = useState<string | undefined>(undefined);
@@ -77,6 +79,8 @@ export function CreateTaskScreen() {
     setError(null);
     setSubmitting(true);
     try {
+      const cm = parseInt(completionMins, 10);
+      const sla = parseInt(slaMins, 10);
       await createTask(hotelId, {
         subject: subject.trim(),
         category,
@@ -84,6 +88,8 @@ export function CreateTaskScreen() {
         departmentId,
         roomId,
         description: description.trim() || undefined,
+        completionMinutes: Number.isFinite(cm) && cm > 0 ? cm : undefined,
+        slaMinutes: Number.isFinite(sla) && sla > 0 ? sla : undefined,
       });
       navigation.goBack();
     } catch (e) {
@@ -91,7 +97,7 @@ export function CreateTaskScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [hotelId, submitting, subject, category, priority, departmentId, roomId, description, navigation]);
+  }, [hotelId, submitting, subject, category, priority, departmentId, roomId, description, completionMins, slaMins, navigation]);
 
   if (!hotelId) {
     return (
@@ -163,6 +169,32 @@ export function CreateTaskScreen() {
             {selectedDept ? selectedDept.name : "Select department (optional)"}
           </Text>
         </Pressable>
+
+        <View style={styles.row}>
+          <View style={styles.rowItem}>
+            <Text style={styles.label}>Completion timer (min)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="optional"
+              placeholderTextColor={colors.muted}
+              value={completionMins}
+              onChangeText={(t) => setCompletionMins(t.replace(/[^0-9]/g, ""))}
+              keyboardType="number-pad"
+            />
+          </View>
+          <View style={styles.rowItem}>
+            <Text style={styles.label}>SLA (min)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="optional"
+              placeholderTextColor={colors.muted}
+              value={slaMins}
+              onChangeText={(t) => setSlaMins(t.replace(/[^0-9]/g, ""))}
+              keyboardType="number-pad"
+            />
+          </View>
+        </View>
+        <Text style={styles.hint}>If the work runs past the completion timer, the manager is notified — the task stays with you.</Text>
 
         <Text style={styles.label}>Description</Text>
         <TextInput
@@ -256,6 +288,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   multiline: { minHeight: 90 },
+  row: { flexDirection: "row", gap: 10 },
+  rowItem: { flex: 1 },
+  hint: { color: colors.muted, fontSize: 11, marginTop: 6 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     borderRadius: 999,

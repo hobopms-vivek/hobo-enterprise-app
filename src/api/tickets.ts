@@ -80,6 +80,8 @@ export type CreateTaskInput = {
   departmentId?: string;
   roomId?: string;
   description?: string;
+  completionMinutes?: number; // D11 — per-task completion timer (manager pinged if overrun)
+  slaMinutes?: number;        // escalation SLA override
 };
 
 export async function createTask(hotelId: string, input: CreateTaskInput): Promise<{ id: string; code: string }> {
