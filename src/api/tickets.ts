@@ -80,6 +80,8 @@ export type CreateTaskInput = {
   departmentId?: string;
   roomId?: string;
   description?: string;
+  completionMinutes?: number; // D11 — per-task completion timer (manager pinged if overrun)
+  slaMinutes?: number;        // escalation SLA override
 };
 
 export async function createTask(hotelId: string, input: CreateTaskInput): Promise<{ id: string; code: string }> {
@@ -88,4 +90,17 @@ export async function createTask(hotelId: string, input: CreateTaskInput): Promi
     body: input,
   });
   return r.item;
+}
+
+/** Reassign candidates for a ticket — on-shift staff sorted least-busy (reuses the web candidates route). */
+export type Candidate = { userId: string; fullName: string; onShift: boolean; openCount: number; role?: { name: string; level: number } | null; department?: string | null };
+const ROLE_NAME: Record<number, string> = { 0: "Owner", 1: "Super Admin", 2: "Admin", 3: "Manager", 4: "Attendant", 5: "Visitor" };
+export async function listCandidates(hotelId: string, ticketId: string): Promise<Candidate[]> {
+  // Web returns { staff: [{ userId, name, departmentId, departmentName, level, onShift, openCount }], departments, me }.
+  type Staff = { userId: string; name: string; departmentName: string | null; level: number; onShift: boolean; openCount: number };
+  const r = await apiFetch<{ staff?: Staff[] }>(`/hotels/${hotelId}/whatsapp/tickets/${ticketId}/candidates`).catch(() => ({} as { staff?: Staff[] }));
+  return (r.staff ?? []).map((s) => ({
+    userId: s.userId, fullName: s.name, onShift: s.onShift, openCount: s.openCount,
+    department: s.departmentName, role: { name: ROLE_NAME[s.level] ?? `Level ${s.level}`, level: s.level },
+  }));
 }

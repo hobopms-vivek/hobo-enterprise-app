@@ -1,200 +1,93 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 
 import { useAuthStore } from "@/store/useAuthStore";
 import { listMessages, sendMessage, type ChatMessage } from "@/api/chat";
-import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import { useRealtime } from "@/realtime/useRealtime";
+import { Loader, Screen, ScreenHeader } from "@/components/kit";
+import { space, type as typo, useTheme } from "@/theme";
 import type { AppNav, AppStackParamList } from "@/navigation/types";
-import { colors } from "@/theme";
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+const time = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); };
 
 export function ChatRoomScreen() {
+  const t = useTheme();
+  const nav = useNavigation<AppNav>();
+  const { params } = useRoute<RouteProp<AppStackParamList, "ChatRoom">>();
+  const { userId, name } = params;
   const hotelId = useAuthStore((s) => s.activeHotelId);
-  const navigation = useNavigation<AppNav>();
-  const route = useRoute<RouteProp<AppStackParamList, "ChatRoom">>();
-  const { userId, name } = route.params;
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [messages, setMessages] = useState<ChatMessage[] | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList<ChatMessage>>(null);
-  // Tracks the current hotel so a response that lands after a hotel switch is dropped.
-  const hotelIdRef = useRef(hotelId);
-  useEffect(() => { hotelIdRef.current = hotelId; }, [hotelId]);
+  const hotelRef = useRef(hotelId);
+  hotelRef.current = hotelId;
 
-  useLayoutEffect(() => {
-    navigation.setOptions({ title: name });
-  }, [navigation, name]);
+  useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
 
-  const scrollToEnd = useCallback(() => {
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
-  }, []);
+  const load = useCallback(async () => {
+    if (!hotelId) return;
+    const forHotel = hotelId;
+    try { const items = await listMessages(forHotel, userId); if (forHotel === hotelRef.current) setMessages(items); }
+    catch { if (forHotel === hotelRef.current) setMessages([]); }
+  }, [hotelId, userId]);
 
-  const load = useCallback(
-    async (showSpinner: boolean) => {
-      if (!hotelId) return;
-      const forHotel = hotelId;
-      if (showSpinner) setLoading(true);
-      try {
-        const items = await listMessages(forHotel, userId);
-        if (forHotel !== hotelIdRef.current) return; // hotel switched mid-load — drop stale messages
-        setMessages(items);
-      } catch {
-        if (showSpinner && forHotel === hotelIdRef.current) setMessages([]);
-      } finally {
-        if (showSpinner && forHotel === hotelIdRef.current) setLoading(false);
-      }
-    },
-    [hotelId, userId],
-  );
-
-  // Poll only while this screen is focused — stop on blur/navigate-away so we
-  // don't drain battery or fire requests for a chat the user has left.
-  useFocusEffect(
-    useCallback(() => {
-      void load(true);
-      const timer = setInterval(() => void load(false), 5000);
-      return () => clearInterval(timer);
-    }, [load]),
-  );
-
-  useEffect(() => {
-    if (messages.length > 0) scrollToEnd();
-  }, [messages.length, scrollToEnd]);
+  useFocusEffect(useCallback(() => {
+    void load();
+    const timer = setInterval(load, 8000);
+    return () => clearInterval(timer);
+  }, [load]));
+  useRealtime(hotelId, (e) => {
+    if (e.type !== "chat.message") return;
+    const p = e.payload as { fromUserId?: string; toUserId?: string };
+    if (p.fromUserId === userId || p.toUserId === userId) void load();
+  });
 
   async function onSend() {
     const body = text.trim();
     if (!hotelId || !body || sending) return;
-    setSending(true);
-    setText("");
-    try {
-      const msg = await sendMessage(hotelId, userId, body);
-      setMessages((prev) => [...prev, msg]);
-      await load(false);
-    } catch (e) {
-      setText(body); // restore on failure
-      Alert.alert("Message not sent", e instanceof Error ? e.message : "Please try again.");
-    } finally {
-      setSending(false);
-    }
+    setSending(true); setText("");
+    try { const msg = await sendMessage(hotelId, userId, body); setMessages((prev) => [...(prev ?? []), msg]); void load(); }
+    catch (e) { setText(body); Alert.alert("Message not sent", e instanceof Error ? e.message : "Please try again."); }
+    finally { setSending(false); }
   }
 
-  if (!hotelId) return <Center text="No hotel selected." />;
-
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-    >
-      {loading && messages.length === 0 ? (
-        <Center text="Loading…" spinner />
-      ) : (
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(m) => m.id}
-          contentContainerStyle={{ padding: 12, paddingBottom: 16, flexGrow: 1 }}
-          onContentSizeChange={scrollToEnd}
-          ListEmptyComponent={<Center text="No messages yet. Say hello!" />}
-          renderItem={({ item }) => {
-            const inbound = item.fromUserId === userId;
-            return (
-              <View style={[styles.bubbleRow, inbound ? styles.rowLeft : styles.rowRight]}>
-                <View style={[styles.bubble, inbound ? styles.bubbleIn : styles.bubbleOut]}>
-                  <Text style={[styles.bubbleText, inbound ? styles.textIn : styles.textOut]}>{item.body}</Text>
-                  <Text style={[styles.bubbleTime, inbound ? styles.timeIn : styles.timeOut]}>{formatTime(item.createdAt)}</Text>
+    <Screen>
+      <ScreenHeader title={name} onBack={() => nav.goBack()} />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}>
+        {messages === null ? <Loader /> : (
+          <FlatList
+            ref={listRef}
+            data={messages}
+            keyExtractor={(m) => m.id}
+            contentContainerStyle={{ padding: space.base, gap: 8, flexGrow: 1 }}
+            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+            ListEmptyComponent={<View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 80 }}><Text style={[typo.caption, { color: t.faint }]}>No messages yet. Say hello!</Text></View>}
+            renderItem={({ item }) => {
+              const inbound = item.fromUserId === userId;
+              return (
+                <View style={{ alignSelf: inbound ? "flex-start" : "flex-end", maxWidth: "80%" }}>
+                  <View style={{ backgroundColor: inbound ? t.surface : t.primary, borderWidth: inbound ? 1 : 0, borderColor: t.border, borderRadius: 16, borderBottomLeftRadius: inbound ? 4 : 16, borderBottomRightRadius: inbound ? 16 : 4, paddingHorizontal: 12, paddingVertical: 9 }}>
+                    <Text style={{ color: inbound ? t.text : "#fff", fontSize: 14.5, lineHeight: 20 }}>{item.body}</Text>
+                  </View>
+                  <Text style={[typo.caption, { color: t.faint, marginTop: 2, alignSelf: inbound ? "flex-start" : "flex-end" }]}>{time(item.createdAt)}</Text>
                 </View>
-              </View>
-            );
-          }}
-        />
-      )}
+              );
+            }}
+          />
+        )}
 
-      <View style={styles.composer}>
-        <TextInput
-          style={styles.input}
-          value={text}
-          onChangeText={setText}
-          placeholder="Type a message…"
-          placeholderTextColor={colors.muted}
-          multiline
-        />
-        <Pressable
-          onPress={() => void onSend()}
-          disabled={sending || text.trim().length === 0}
-          style={[styles.sendBtn, (sending || text.trim().length === 0) && styles.sendBtnDisabled]}
-        >
-          <Ionicons name="send" size={18} color="#fff" />
-        </Pressable>
-      </View>
-    </KeyboardAvoidingView>
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, padding: 10, backgroundColor: t.surface, borderTopWidth: 1, borderTopColor: t.border }}>
+          <TextInput value={text} onChangeText={setText} placeholder="Type a message…" placeholderTextColor={t.faint} multiline style={{ flex: 1, maxHeight: 120, minHeight: 42, backgroundColor: t.surfaceSunken, borderRadius: 21, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14.5, color: t.text }} />
+          <Pressable onPress={onSend} disabled={sending || !text.trim()} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: text.trim() ? t.primary : t.slate300, alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="send" size={18} color="#fff" />
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
-
-function Center({ text, spinner }: { text: string; spinner?: boolean }) {
-  return (
-    <View style={styles.center}>
-      {spinner ? <ActivityIndicator color={colors.blue} /> : null}
-      <Text style={styles.centerText}>{text}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  bubbleRow: { flexDirection: "row", marginBottom: 8 },
-  rowLeft: { justifyContent: "flex-start" },
-  rowRight: { justifyContent: "flex-end" },
-  bubble: { maxWidth: "78%", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
-  bubbleIn: { backgroundColor: colors.white, borderTopLeftRadius: 4, borderWidth: 1, borderColor: colors.border },
-  bubbleOut: { backgroundColor: colors.blue, borderTopRightRadius: 4 },
-  bubbleText: { fontSize: 14, lineHeight: 19 },
-  textIn: { color: colors.text },
-  textOut: { color: "#fff" },
-  bubbleTime: { fontSize: 10, marginTop: 4, alignSelf: "flex-end" },
-  timeIn: { color: colors.muted },
-  timeOut: { color: "#E0EAFF" },
-  composer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    padding: 10,
-    backgroundColor: colors.white,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  input: {
-    flex: 1,
-    maxHeight: 120,
-    minHeight: 42,
-    backgroundColor: colors.slate100,
-    borderRadius: 21,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: colors.text,
-  },
-  sendBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center" },
-  sendBtnDisabled: { opacity: 0.5 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30, gap: 8 },
-  centerText: { color: colors.muted, fontSize: 14 },
-});

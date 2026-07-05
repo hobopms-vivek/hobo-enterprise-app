@@ -1,9 +1,8 @@
 import React, { useEffect } from "react";
-import { ActivityIndicator, View } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { useAuthStore } from "@/store/useAuthStore";
-import { colors } from "@/theme";
+import { Splash } from "@/components/Splash";
 import { LoginScreen } from "@/screens/auth/LoginScreen";
 import { AppStack } from "@/navigation/AppStack";
 
@@ -22,13 +21,7 @@ export function RootNavigator() {
     void init();
   }, [init]);
 
-  if (status === "loading") {
-    return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.navy }}>
-        <ActivityIndicator color="#fff" size="large" />
-      </View>
-    );
-  }
+  if (status === "loading") return <Splash />;
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>

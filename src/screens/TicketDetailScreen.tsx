@@ -1,534 +1,184 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Image, Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 
-import { useAuthStore } from "@/store/useAuthStore";
-import {
-  actOnTicket,
-  getTicket,
-  type TicketAction,
-  type TicketDetail,
-  type TicketLog,
-} from "@/api/tickets";
-import { listDepartments, listMembers, type Department, type Member } from "@/api/ops";
+import { actOnTicket, getTicket, type TicketDetail } from "@/api/tickets";
 import { captureAndUpload } from "@/services/photo";
+import { useAuthStore } from "@/store/useAuthStore";
+import { FinishTaskSheet } from "@/components/FinishTaskSheet";
+import { ReassignSheet } from "@/components/ReassignSheet";
+import { Avatar, Button, Card, IconChip, Loader, Screen, ScreenHeader, StatusBadge } from "@/components/kit";
+import { priorityColor, radius, space, statusColor, tabular, tint, type as typo, useTheme } from "@/theme";
 import type { AppNav, AppStackParamList } from "@/navigation/types";
-import { colors, priorityColor, statusColor } from "@/theme";
 
-type StepAction = { label: string; action: TicketAction; color: string; extra?: { delivered: boolean } };
-
-// Hobo-exp parity: auto-accepted on assignment → assignee's first button is
-// "Start" (en route), then "Complete Task". A manager Approves/Rejects a DONE
-// task; the assignee just sees "awaiting approval".
-function stepActionsFor(t: TicketDetail, me: string | undefined, isManager: boolean): StepAction[] {
-  if (t.status === "RESOLVED" || t.status === "CLOSED") return [];
-  const step = t.workflowStep ?? "ACCEPTED";
-  if (step === "DONE") {
-    if (isManager) {
-      return [
-        { label: "Approve", action: "approve", color: colors.green },
-        { label: "Reject", action: "reject_done", color: colors.red },
-      ];
-    }
-    return [];
-  }
-  if (t.assignedToId && t.assignedToId === me) {
-    if (step === "EN_ROUTE" || step === "AT_LOCATION") return [{ label: "Complete Task", action: "done", color: colors.green, extra: { delivered: true } }];
-    return [{ label: "Start", action: "en_route", color: colors.blue }];
-  }
-  return [];
-}
-
-function isTerminal(t: TicketDetail): boolean {
-  return t.status === "RESOLVED" || t.status === "CLOSED";
-}
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function fmt(ts?: string | null): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 }
 
 export function TicketDetailScreen() {
-  const hotelId = useAuthStore((s) => s.activeHotelId);
-  const me = useAuthStore((s) => s.user?.id);
+  const t = useTheme();
+  const nav = useNavigation<AppNav>();
+  const { params } = useRoute<RouteProp<AppStackParamList, "TicketDetail">>();
+  const user = useAuthStore((s) => s.user);
   const hotels = useAuthStore((s) => s.hotels);
-  const roleLevel = hotels.find((h) => h.id === hotelId)?.role?.level ?? 5;
-  const isManager = roleLevel <= 3;
-  const navigation = useNavigation<AppNav>();
-  const route = useRoute<RouteProp<AppStackParamList, "TicketDetail">>();
-  const ticketId = route.params.ticketId;
+  const activeHotelId = useAuthStore((s) => s.activeHotelId)!;
+  const level = hotels.find((h) => h.id === activeHotelId)?.role?.level ?? 5;
+  const isManager = level <= 3;
 
-  const [ticket, setTicket] = useState<TicketDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [tk, setTk] = useState<TicketDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const [reattemptReason, setReattemptReason] = useState("");
-  const [pendingPhotos, setPendingPhotos] = useState<{ step: string; url: string }[]>([]);
-  const [uploading, setUploading] = useState(false);
-
+  const [finishOpen, setFinishOpen] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
-  const [transferOpen, setTransferOpen] = useState(false);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pending, setPending] = useState<string[]>([]);
 
-  useLayoutEffect(() => {
-    navigation.setOptions({ title: "Ticket" });
-  }, [navigation]);
+  useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
 
   const load = useCallback(async () => {
-    if (!hotelId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      setTicket(await getTicket(hotelId, ticketId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load ticket.");
-    } finally {
-      setLoading(false);
-    }
-  }, [hotelId, ticketId]);
+    try { setTk(await getTicket(activeHotelId, params.ticketId)); setError(null); }
+    catch (e) { setError(e instanceof Error ? e.message : "Couldn't load ticket."); }
+  }, [activeHotelId, params.ticketId]);
+  useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const runAction = useCallback(
-    async (action: TicketAction, extra?: Parameters<typeof actOnTicket>[3]) => {
-      if (!hotelId || busy) return;
-      setBusy(true);
-      setError(null);
-      try {
-        await actOnTicket(hotelId, ticketId, action, extra);
-        setPendingPhotos([]);
-        await load();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Action failed.");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [hotelId, ticketId, busy, load]
-  );
-
-  const onAddPhoto = useCallback(async () => {
-    if (!hotelId || uploading) return;
-    setUploading(true);
-    setError(null);
-    try {
-      const url = await captureAndUpload(hotelId);
-      if (url) setPendingPhotos((p) => [...p, { step: ticket?.workflowStep ?? "DONE", url }]);
-    } catch {
-      setError("Photo upload failed.");
-    } finally {
-      setUploading(false);
-    }
-  }, [hotelId, uploading, ticket?.workflowStep]);
-
-  const onReattempt = useCallback(async () => {
-    const reason = reattemptReason.trim();
-    await runAction("done", { delivered: false, reason: reason || undefined, photos: pendingPhotos.length ? pendingPhotos : undefined });
-    setReattemptReason("");
-  }, [reattemptReason, pendingPhotos, runAction]);
-
-  const openReassign = useCallback(async () => {
-    if (!hotelId) return;
-    setReassignOpen(true);
-    setPickerLoading(true);
-    try {
-      // Only offer ACTIVE staff as reassign targets (a disabled account would reject).
-      setMembers((await listMembers(hotelId)).filter((m) => m.isActive));
-    } catch {
-      setMembers([]);
-    } finally {
-      setPickerLoading(false);
-    }
-  }, [hotelId]);
-
-  const openTransfer = useCallback(async () => {
-    if (!hotelId) return;
-    setTransferOpen(true);
-    setPickerLoading(true);
-    try {
-      setDepartments(await listDepartments(hotelId));
-    } catch {
-      setDepartments([]);
-    } finally {
-      setPickerLoading(false);
-    }
-  }, [hotelId]);
-
-  const onReassign = useCallback(
-    async (toUserId: string) => {
-      setReassignOpen(false);
-      await runAction("reassign", { toUserId });
-    },
-    [runAction]
-  );
-
-  const onTransfer = useCallback(
-    async (toDeptId: string) => {
-      setTransferOpen(false);
-      await runAction("transfer", { toDeptId });
-    },
-    [runAction]
-  );
-
-  if (!hotelId) return <Center text="No hotel selected." />;
-  if (loading && !ticket) return <Center text="Loading…" spinner />;
-  if (!ticket) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>{error ?? "Ticket not found."}</Text>
-        <Pressable style={styles.retryBtn} onPress={() => void load()}>
-          <Text style={styles.retryText}>Retry</Text>
-        </Pressable>
-      </View>
-    );
+  async function act(action: Parameters<typeof actOnTicket>[2]) {
+    setBusy(true);
+    try { await actOnTicket(activeHotelId, params.ticketId, action); await load(); }
+    catch (e) { Alert.alert("Action failed", e instanceof Error ? e.message : "Please try again."); }
+    finally { setBusy(false); }
   }
 
-  const stepActions = stepActionsFor(ticket, me, isManager);
-  // "working" = assigned to me AND not yet handed off for approval → photo +
-  // not-completed controls only show while actually doing the task.
-  const isAssignee = !!ticket.assignedToId && ticket.assignedToId === me && ticket.workflowStep !== "DONE" && ticket.workflowStep !== "APPROVED";
-  const terminal = isTerminal(ticket);
-  const statusLabel =
-    ticket.workflowStep && ticket.status !== "RESOLVED" ? ticket.workflowStep : ticket.status;
-  const photos = ticket.photosJson ?? [];
+  async function takePhoto() {
+    const url = await captureAndUpload(activeHotelId);
+    if (url) setPending((p) => [...p, url]);
+  }
+
+  if (!tk) return <Screen><ScreenHeader title="Ticket" onBack={() => nav.goBack()} />{error ? <ErrorState msg={error} onRetry={load} /> : <Loader />}</Screen>;
+
+  const isMine = tk.assignedToId === user?.id;
+  const step = tk.workflowStep;
+  const active = tk.status !== "RESOLVED" && tk.status !== "CLOSED";
+  const photos = [...(tk.photosJson ?? []).map((p) => p.url), ...pending];
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      {error ? (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorBannerText}>{error}</Text>
-        </View>
-      ) : null}
-
-      {/* Header card */}
-      <View style={styles.card}>
-        <View style={styles.rowBetween}>
-          <Text style={styles.code}>{ticket.code}</Text>
-          <View
-            style={[styles.badge, { backgroundColor: (statusColor[statusLabel] ?? colors.muted) + "22" }]}
-          >
-            <Text style={[styles.badgeText, { color: statusColor[statusLabel] ?? colors.muted }]}>
-              {statusLabel}
-            </Text>
-          </View>
-        </View>
-        <Text style={styles.subject}>{ticket.subject}</Text>
-        <View style={styles.metaRow}>
-          <Text style={[styles.pill, { color: priorityColor[ticket.priority] ?? colors.muted }]}>
-            {ticket.priority}
-          </Text>
-          <Text style={styles.meta}>· {ticket.category}</Text>
-          {typeof ticket.reattemptCount === "number" && ticket.reattemptCount > 0 ? (
-            <Text style={styles.meta}>· {ticket.reattemptCount} re-attempt(s)</Text>
-          ) : null}
-        </View>
-      </View>
-
-      {/* Guest */}
-      {ticket.guest ? (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Guest</Text>
-          <Text style={styles.bodyText}>{ticket.guest.fullName}</Text>
-          {ticket.guest.phone ? <Text style={styles.meta}>{ticket.guest.phone}</Text> : null}
-        </View>
-      ) : null}
-
-      {/* Description */}
-      {ticket.description ? (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Description</Text>
-          <Text style={styles.bodyText}>{ticket.description}</Text>
-        </View>
-      ) : null}
-
-      {/* Photos */}
-      {photos.length > 0 ? (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Photos</Text>
-          <View style={styles.photoRow}>
-            {photos.map((p, i) => (
-              <Image key={`${p.url}-${i}`} source={{ uri: p.url }} style={styles.photo} />
-            ))}
-          </View>
-        </View>
-      ) : null}
-
-      {/* Action buttons */}
-      {!terminal ? (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Actions</Text>
-          <View style={styles.actions}>
-            {stepActions.map((a) => (
-              <Pressable
-                key={a.action}
-                onPress={() => void runAction(a.action, a.action === "done" ? { ...a.extra, photos: pendingPhotos.length ? pendingPhotos : undefined } : a.extra)}
-                disabled={busy}
-                style={[styles.actionBtn, { backgroundColor: a.color, opacity: busy ? 0.6 : 1 }]}
-              >
-                <Text style={styles.actionText}>{a.label}</Text>
-              </Pressable>
-            ))}
-            {isAssignee ? (
-              <Pressable
-                onPress={() => void onAddPhoto()}
-                disabled={busy || uploading}
-                style={[styles.actionBtn, styles.outlineBtn, { opacity: busy || uploading ? 0.6 : 1 }]}
-              >
-                <Text style={styles.outlineText}>{uploading ? "Uploading…" : `Take photo${pendingPhotos.length ? ` (${pendingPhotos.length})` : ""}`}</Text>
-              </Pressable>
-            ) : null}
-            {isManager ? (
-              <>
-                <Pressable
-                  onPress={() => void openReassign()}
-                  disabled={busy}
-                  style={[styles.actionBtn, styles.outlineBtn, { opacity: busy ? 0.6 : 1 }]}
-                >
-                  <Text style={styles.outlineText}>Reassign</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => void openTransfer()}
-                  disabled={busy}
-                  style={[styles.actionBtn, styles.outlineBtn, { opacity: busy ? 0.6 : 1 }]}
-                >
-                  <Text style={styles.outlineText}>Transfer</Text>
-                </Pressable>
-              </>
-            ) : null}
-          </View>
-
-          {pendingPhotos.length > 0 ? (
-            <View style={[styles.photoRow, { marginTop: 10 }]}>
-              {pendingPhotos.map((p, i) => (
-                <Image key={`${p.url}-${i}`} source={{ uri: p.url }} style={styles.photo} />
-              ))}
+    <Screen>
+      <ScreenHeader title={tk.code} onBack={() => nav.goBack()} right={<StatusBadge label={tk.status.replace("_", " ")} color={statusColor[tk.status] ?? t.muted} />} />
+      <ScrollView contentContainerStyle={{ padding: space.base, gap: 12, paddingBottom: 40 }}>
+        {/* Header card */}
+        <Card accent={tk.status === "ESCALATED" ? t.red : undefined}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Ionicons name="flag" size={13} color={priorityColor[tk.priority] ?? t.muted} />
+              <Text style={{ color: priorityColor[tk.priority] ?? t.muted, fontWeight: "800", fontSize: 12.5, textTransform: "capitalize" }}>{tk.priority}</Text>
             </View>
-          ) : null}
+            {tk.category ? <StatusBadge label={tk.category.replace("_", " ")} color={t.muted} /> : null}
+            {tk.reattemptCount ? <Text style={[typo.caption, { color: t.amber, marginLeft: "auto" }]}>re-attempt ×{tk.reattemptCount}</Text> : null}
+          </View>
+          <Text style={[typo.h1, { color: t.text }]}>{tk.subject}</Text>
+        </Card>
 
-          {/* Re-attempt with reason — only the assignee, while working the task
-              (guest asked to come back later → "Not completed" in Hobo-exp). */}
-          {isAssignee ? (
-            <>
-              <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Couldn&apos;t complete? (re-attempt)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Reason (e.g. guest not in room)"
-                placeholderTextColor={colors.muted}
-                value={reattemptReason}
-                onChangeText={setReattemptReason}
-              />
-              <Pressable
-                onPress={() => void onReattempt()}
-                disabled={busy}
-                style={[styles.actionBtn, { backgroundColor: colors.amber, marginTop: 8, opacity: busy ? 0.6 : 1 }]}
-              >
-                <Text style={styles.actionText}>Mark not completed</Text>
-              </Pressable>
-            </>
-          ) : null}
-
-          {ticket.workflowStep === "DONE" && !isManager ? <Text style={[styles.meta, { marginTop: 12, textAlign: "center", color: colors.amber, fontWeight: "700" }]}>⏳ Awaiting manager approval</Text> : null}
-
-          {busy ? <ActivityIndicator style={{ marginTop: 12 }} color={colors.blue} /> : null}
-        </View>
-      ) : null}
-
-      {/* Log timeline */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Assignment Log</Text>
-        {ticket.logs.length === 0 ? (
-          <Text style={styles.meta}>No activity yet.</Text>
-        ) : (
-          ticket.logs.map((log: TicketLog) => (
-            <View key={log.id} style={styles.logRow}>
-              <View style={styles.logDot} />
-              <View style={styles.logBody}>
-                <Text style={styles.logAction}>{log.action}</Text>
-                {log.reason ? <Text style={styles.logReason}>{log.reason}</Text> : null}
-                <Text style={styles.logTime}>{formatTime(log.createdAt)}</Text>
+        {/* Guest */}
+        {tk.guest?.fullName ? (
+          <Card>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <Avatar name={tk.guest.fullName} size={40} />
+              <View style={{ flex: 1 }}>
+                <Text style={[typo.bodyStrong, { color: t.text }]}>{tk.guest.fullName}</Text>
+                {tk.guest.phone ? <Text style={[typo.caption, { color: t.muted }]}>{tk.guest.phone}</Text> : null}
               </View>
-            </View>
-          ))
-        )}
-      </View>
-
-      {/* Reassign modal */}
-      <PickerModal
-        visible={reassignOpen}
-        title="Reassign to member"
-        loading={pickerLoading}
-        onClose={() => setReassignOpen(false)}
-        rows={members.map((m) => ({
-          id: m.userId,
-          title: m.fullName || m.email,
-          subtitle: m.department?.name ?? m.role?.name ?? undefined,
-        }))}
-        onSelect={(id) => void onReassign(id)}
-      />
-
-      {/* Transfer modal */}
-      <PickerModal
-        visible={transferOpen}
-        title="Transfer to department"
-        loading={pickerLoading}
-        onClose={() => setTransferOpen(false)}
-        rows={departments.map((d) => ({ id: d.id, title: d.name }))}
-        onSelect={(id) => void onTransfer(id)}
-      />
-    </ScrollView>
-  );
-}
-
-type PickerRow = { id: string; title: string; subtitle?: string };
-
-function PickerModal({
-  visible,
-  title,
-  loading,
-  rows,
-  onSelect,
-  onClose,
-}: {
-  visible: boolean;
-  title: string;
-  loading: boolean;
-  rows: PickerRow[];
-  onSelect: (id: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={styles.modalTitle}>{title}</Text>
-          {loading ? (
-            <ActivityIndicator color={colors.blue} style={{ marginVertical: 20 }} />
-          ) : rows.length === 0 ? (
-            <Text style={styles.meta}>Nothing available.</Text>
-          ) : (
-            <ScrollView style={{ maxHeight: 360 }}>
-              {rows.map((row) => (
-                <Pressable key={row.id} style={styles.modalRow} onPress={() => onSelect(row.id)}>
-                  <Text style={styles.modalRowTitle}>{row.title}</Text>
-                  {row.subtitle ? <Text style={styles.meta}>{row.subtitle}</Text> : null}
+              {tk.guest.phone ? (
+                <Pressable onPress={() => Linking.openURL(`tel:${tk.guest?.phone}`)} style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: tint(t.primary, "18"), alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="call" size={18} color={t.primary} />
                 </Pressable>
-              ))}
-            </ScrollView>
-          )}
-          <Pressable style={styles.modalClose} onPress={onClose}>
-            <Text style={styles.modalCloseText}>Close</Text>
-          </Pressable>
-        </Pressable>
-      </Pressable>
-    </Modal>
+              ) : null}
+            </View>
+          </Card>
+        ) : null}
+
+        {/* Description */}
+        {tk.description ? (
+          <Card>
+            <Text style={[typo.label, { color: t.muted, marginBottom: 6 }]}>Description</Text>
+            <Text style={[typo.body, { color: t.text, lineHeight: 21 }]}>{tk.description}</Text>
+          </Card>
+        ) : null}
+
+        {/* Photos */}
+        <Card>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+            <Text style={[typo.label, { color: t.muted }]}>Photos {photos.length ? `(${photos.length})` : ""}</Text>
+            {isMine && active ? <Pressable onPress={takePhoto} style={{ marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 4 }}><Ionicons name="camera-outline" size={16} color={t.primary} /><Text style={{ color: t.primary, fontWeight: "700", fontSize: 12.5 }}>Add photo</Text></Pressable> : null}
+          </View>
+          {photos.length ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {photos.map((url, i) => <Image key={`${url}-${i}`} source={{ uri: url }} style={{ width: 88, height: 88, borderRadius: radius.md }} />)}
+            </View>
+          ) : <Text style={[typo.caption, { color: t.faint }]}>No photos yet.</Text>}
+        </Card>
+
+        {/* Actions */}
+        {active ? (
+          <Card>
+            <Text style={[typo.label, { color: t.muted, marginBottom: 10 }]}>Actions</Text>
+            <View style={{ gap: 10 }}>
+              {step === "DONE" ? (
+                isManager ? (
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Button title="Approve" variant="success" icon="checkmark" full={false} style={{ flex: 1 }} loading={busy} onPress={() => act("approve")} />
+                    <Button title="Reject" variant="outline" icon="close" full={false} style={{ flex: 1 }} loading={busy} onPress={() => act("reject_done")} />
+                  </View>
+                ) : <Text style={[typo.caption, { color: t.amber, fontWeight: "700" }]}>⏳ Awaiting manager approval</Text>
+              ) : isMine ? (
+                (step === "PENDING" || step === "ACCEPTED" || !step) ? <Button title="Start task" icon="play" loading={busy} onPress={() => act("en_route")} />
+                : step === "EN_ROUTE" ? (
+                  <View style={{ gap: 10 }}>
+                    <Button title="Arrived" icon="location" variant="outline" loading={busy} onPress={() => act("at_location")} />
+                    <Button title="Complete task" icon="checkmark-circle" variant="success" onPress={() => setFinishOpen(true)} />
+                  </View>
+                ) : <Button title="Complete task" icon="checkmark-circle" variant="success" onPress={() => setFinishOpen(true)} />
+              ) : null}
+              {isManager ? <Button title="Reassign / Transfer" icon="swap-horizontal" variant="outline" onPress={() => setReassignOpen(true)} /> : null}
+            </View>
+          </Card>
+        ) : null}
+
+        {/* Timeline */}
+        {tk.logs?.length ? (
+          <Card>
+            <Text style={[typo.label, { color: t.muted, marginBottom: 12 }]}>Activity timeline</Text>
+            {[...tk.logs].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((log, i, arr) => (
+              <View key={log.id} style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ alignItems: "center" }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: t.primary, marginTop: 3 }} />
+                  {i < arr.length - 1 ? <View style={{ width: 2, flex: 1, backgroundColor: t.divider, marginVertical: 2 }} /> : null}
+                </View>
+                <View style={{ flex: 1, paddingBottom: 14 }}>
+                  <Text style={[typo.bodyStrong, { color: t.text, textTransform: "capitalize" }]}>{log.action.replace(/_/g, " ")}</Text>
+                  {log.reason ? <Text style={[typo.caption, { color: t.muted }]}>{log.reason}</Text> : null}
+                  <Text style={[typo.caption, { color: t.faint, marginTop: 1 }, tabular]}>{fmt(log.createdAt)}</Text>
+                </View>
+              </View>
+            ))}
+          </Card>
+        ) : null}
+      </ScrollView>
+
+      <FinishTaskSheet visible={finishOpen} onClose={() => setFinishOpen(false)} hotelId={activeHotelId} ticketId={tk.id} initialPhotos={pending} onFinished={() => { setPending([]); void load(); }} />
+      <ReassignSheet visible={reassignOpen} onClose={() => setReassignOpen(false)} hotelId={activeHotelId} ticketId={tk.id} onDone={load} />
+    </Screen>
   );
 }
 
-function Center({ text, spinner }: { text: string; spinner?: boolean }) {
+function ErrorState({ msg, onRetry }: { msg: string; onRetry: () => void }) {
+  const t = useTheme();
   return (
-    <View style={styles.center}>
-      {spinner ? <ActivityIndicator color={colors.blue} /> : null}
-      <Text style={styles.centerText}>{text}</Text>
+    <View style={{ padding: 40, alignItems: "center", gap: 12 }}>
+      <IconChip icon="alert-circle-outline" color={t.red} size={52} />
+      <Text style={[typo.title, { color: t.text }]}>Something went wrong</Text>
+      <Text style={[typo.caption, { color: t.muted, textAlign: "center" }]}>{msg}</Text>
+      <Button title="Try again" variant="outline" icon="refresh" full={false} onPress={onRetry} />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 12, paddingBottom: 28 },
-  card: {
-    backgroundColor: colors.white,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  code: { color: colors.muted, fontSize: 12, fontWeight: "700" },
-  badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { fontSize: 11, fontWeight: "700" },
-  subject: { color: colors.text, fontSize: 17, fontWeight: "700", marginTop: 8 },
-  metaRow: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 4, flexWrap: "wrap" },
-  pill: { fontSize: 12, fontWeight: "700", textTransform: "capitalize" },
-  meta: { color: colors.muted, fontSize: 12 },
-  sectionTitle: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 },
-  bodyText: { color: colors.text, fontSize: 14, lineHeight: 20 },
-  photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  photo: { width: 84, height: 84, borderRadius: 10, backgroundColor: colors.slate100 },
-  actions: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  actionBtn: { borderRadius: 9, paddingHorizontal: 14, paddingVertical: 9 },
-  actionText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  outlineBtn: { backgroundColor: colors.slate100, borderWidth: 1, borderColor: colors.border },
-  outlineText: { color: colors.text, fontWeight: "700", fontSize: 13 },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: colors.text,
-    backgroundColor: colors.white,
-  },
-  logRow: { flexDirection: "row", gap: 10, paddingVertical: 6 },
-  logDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.blue, marginTop: 5 },
-  logBody: { flex: 1 },
-  logAction: { color: colors.text, fontSize: 13, fontWeight: "700", textTransform: "capitalize" },
-  logReason: { color: colors.muted, fontSize: 12, marginTop: 2 },
-  logTime: { color: colors.muted, fontSize: 11, marginTop: 2 },
-  errorBanner: {
-    backgroundColor: colors.red + "18",
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.red + "44",
-  },
-  errorBannerText: { color: colors.red, fontSize: 13, fontWeight: "600" },
-  errorText: { color: colors.red, fontSize: 14, fontWeight: "600", marginBottom: 12 },
-  retryBtn: { backgroundColor: colors.blue, borderRadius: 9, paddingHorizontal: 18, paddingVertical: 10 },
-  retryText: { color: "#fff", fontWeight: "700" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30, gap: 8, backgroundColor: colors.bg },
-  centerText: { color: colors.muted, fontSize: 14 },
-  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
-  modalSheet: {
-    backgroundColor: colors.white,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    padding: 18,
-    paddingBottom: 28,
-  },
-  modalTitle: { color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: 12 },
-  modalRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
-  modalRowTitle: { color: colors.text, fontSize: 15, fontWeight: "600" },
-  modalClose: {
-    marginTop: 14,
-    backgroundColor: colors.slate100,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  modalCloseText: { color: colors.text, fontWeight: "700" },
-});

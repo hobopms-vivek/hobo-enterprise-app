@@ -1,44 +1,39 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
-import { colors } from "@/theme";
+import { radius, tint, type as typo, useTheme } from "@/theme";
 
 type Props = { children: React.ReactNode };
 type State = { hasError: boolean; message?: string };
 
-/** Catches render-time crashes anywhere below it and shows a recoverable
- * fallback instead of a white screen / hard crash. */
+/** Theme-aware fallback (hooks live here; the boundary itself is a class). */
+function ErrorFallback({ message, onReset }: { message: string; onReset: () => void }) {
+  const t = useTheme();
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 12, backgroundColor: t.bg }}>
+      <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: tint(t.red, "18"), alignItems: "center", justifyContent: "center" }}>
+        <Ionicons name="alert-circle-outline" size={28} color={t.red} />
+      </View>
+      <Text style={[typo.h2, { color: t.text }]}>Something went wrong</Text>
+      <Text style={[typo.caption, { color: t.muted, textAlign: "center", maxWidth: 280 }]}>{message}</Text>
+      <Pressable onPress={onReset} style={{ marginTop: 8, backgroundColor: t.primary, borderRadius: radius.md, paddingHorizontal: 22, paddingVertical: 12 }}>
+        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Try again</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** Catches render-time crashes anywhere below it and shows a recoverable fallback. */
 export class ErrorBoundary extends React.Component<Props, State> {
   state: State = { hasError: false };
-
   static getDerivedStateFromError(error: unknown): State {
     return { hasError: true, message: error instanceof Error ? error.message : "Something went wrong" };
   }
-
-  componentDidCatch(error: unknown) {
-    console.error("[ErrorBoundary]", error);
-  }
-
+  componentDidCatch(error: unknown) { console.error("[ErrorBoundary]", error); }
   private reset = () => this.setState({ hasError: false, message: undefined });
-
   render() {
     if (!this.state.hasError) return this.props.children;
-    return (
-      <View style={styles.wrap}>
-        <Text style={styles.title}>Something went wrong</Text>
-        <Text style={styles.msg}>{this.state.message}</Text>
-        <Pressable style={styles.btn} onPress={this.reset}>
-          <Text style={styles.btnText}>Try again</Text>
-        </Pressable>
-      </View>
-    );
+    return <ErrorFallback message={this.state.message ?? "Something went wrong"} onReset={this.reset} />;
   }
 }
-
-const styles = StyleSheet.create({
-  wrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, backgroundColor: colors.bg, gap: 12 },
-  title: { fontSize: 18, fontWeight: "700", color: colors.text },
-  msg: { fontSize: 13, color: colors.muted, textAlign: "center" },
-  btn: { marginTop: 8, backgroundColor: colors.blue, borderRadius: 10, paddingHorizontal: 22, paddingVertical: 12 },
-  btnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-});

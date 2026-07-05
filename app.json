@@ -29,6 +29,7 @@
     "android": {
       "package": "com.hobostays.enterprise",
       "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./logo/adaptive-icon.png",
         "backgroundColor": "#0B2A5B"
@@ -52,7 +53,17 @@
       "favicon": "./logo/favicon.png"
     },
     "plugins": [
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./logo/icon.png",
+          "color": "#0B2A5B",
+          "sounds": [
+            "./src/assets/sounds/escalation.mp3",
+            "./src/assets/sounds/talktomanager.mp3"
+          ]
+        }
+      ],
       [
         "expo-camera",
         {

@@ -1,119 +1,94 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Switch, Text, View } from "react-native";
+import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { Alert, FlatList, RefreshControl, Switch, Text, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 
 import { useAuthStore } from "@/store/useAuthStore";
 import { listMembers, type Member } from "@/api/ops";
 import { getPresence, setPresence } from "@/api/presence";
 import { useRealtime } from "@/realtime/useRealtime";
-import { colors } from "@/theme";
+import { Avatar, EmptyState, Screen, ScreenHeader, Skeleton } from "@/components/kit";
+import { space, type as typo, useTheme } from "@/theme";
+import type { AppNav } from "@/navigation/types";
 
 export function TeamScreen() {
+  const t = useTheme();
+  const nav = useNavigation<AppNav>();
   const hotelId = useAuthStore((s) => s.activeHotelId);
   const hotels = useAuthStore((s) => s.hotels);
-  const roleLevel = hotels.find((h) => h.id === hotelId)?.role?.level ?? 5;
-  const isManager = roleLevel <= 3; // SSA/SA/Admin/Manager can activate/deactivate others
+  const isManager = (hotels.find((h) => h.id === hotelId)?.role?.level ?? 5) <= 3;
 
-  const [members, setMembers] = useState<Member[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [shift, setShiftMap] = useState<Record<string, boolean>>({});
+  const [members, setMembers] = useState<Member[] | null>(null);
+  const [shift, setShift] = useState<Record<string, boolean>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
+  useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
   const load = useCallback(async () => {
     if (!hotelId) return;
-    setLoading(true);
     try {
       const ms = await listMembers(hotelId);
       setMembers(ms);
       if (isManager) {
-        // Fetch each member's on-shift status (so the toggle reflects reality).
         const entries = await Promise.all(ms.map(async (m) => [m.userId, (await getPresence(hotelId, m.userId).catch(() => ({ onShift: false }))).onShift] as const));
-        setShiftMap(Object.fromEntries(entries));
+        setShift(Object.fromEntries(entries));
       }
-    } catch {
-      setMembers([]);
-    } finally {
-      setLoading(false);
-    }
+    } catch { setMembers([]); }
   }, [hotelId, isManager]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Live sync: any presence change (this device, another manager, or the web)
-  // updates the toggle instantly — no refresh needed.
+  useEffect(() => { void load(); }, [load]);
   useRealtime(hotelId, (e) => {
     if (e.type !== "presence.changed") return;
     const p = e.payload as { userId?: string; onShift?: boolean };
-    if (p.userId) setShiftMap((m) => ({ ...m, [p.userId as string]: !!p.onShift }));
+    if (p.userId) setShift((m) => ({ ...m, [p.userId as string]: !!p.onShift }));
   });
 
   async function toggle(m: Member, next: boolean) {
     if (!hotelId || busyId) return;
     setBusyId(m.userId);
-    setShiftMap((p) => ({ ...p, [m.userId]: next }));
+    setShift((p) => ({ ...p, [m.userId]: next }));
     try {
       const r = await setPresence(hotelId, next, m.userId);
-      if (!next && r.reassigned) Alert.alert("Staff deactivated", `${m.fullName} is now off shift. ${r.reassigned} open task(s) were reassigned to other active staff.`);
-    } catch {
-      setShiftMap((p) => ({ ...p, [m.userId]: !next })); // revert
-      Alert.alert("Failed", "Could not update status.");
-    } finally {
-      setBusyId(null);
-    }
+      if (!next && r.reassigned) Alert.alert("Staff deactivated", `${m.fullName} is now off shift. ${r.reassigned} open task(s) were reassigned.`);
+    } catch { setShift((p) => ({ ...p, [m.userId]: !next })); Alert.alert("Failed", "Could not update status."); }
+    finally { setBusyId(null); }
   }
 
-  if (loading && members.length === 0) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.blue} />
-      </View>
-    );
-  }
+  const onShiftCount = Object.values(shift).filter(Boolean).length;
 
   return (
-    <FlatList
-      style={styles.screen}
-      data={members}
-      keyExtractor={(m) => m.userId}
-      contentContainerStyle={{ padding: 12, paddingBottom: 28 }}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.blue} />}
-      ListEmptyComponent={<View style={styles.center}><Text style={styles.muted}>No team members.</Text></View>}
-      renderItem={({ item }) => (
-        <View style={styles.row}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{(item.fullName || item.email || "?").charAt(0).toUpperCase()}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.name}>{item.fullName || item.email}</Text>
-            <Text style={styles.meta}>
-              {item.role?.name ?? "—"}
-              {item.department?.name ? ` · ${item.department.name}` : ""}
-            </Text>
-          </View>
-          {isManager ? (
-            <View style={{ alignItems: "center", width: 56 }}>
-              <Switch value={shift[item.userId] ?? false} onValueChange={(v) => toggle(item, v)} disabled={busyId === item.userId} trackColor={{ true: colors.green }} />
-              <Text style={styles.shiftLabel}>{(shift[item.userId] ?? false) ? "On shift" : "Off"}</Text>
-            </View>
-          ) : (
-            <View style={[styles.dot, { backgroundColor: item.isActive ? colors.green : colors.muted }]} />
-          )}
-        </View>
+    <Screen>
+      <ScreenHeader title="Team" subtitle={members ? `${isManager ? `${onShiftCount} on shift · ` : ""}${members.length} total` : undefined} onBack={() => nav.goBack()} />
+      {members === null ? (
+        <View style={{ padding: space.base, gap: 8 }}>{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} height={58} radius={12} />)}</View>
+      ) : (
+        <FlatList
+          data={members}
+          keyExtractor={(m) => m.userId}
+          contentContainerStyle={{ paddingHorizontal: space.base, paddingBottom: 24 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
+          ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: t.divider }} />}
+          ListEmptyComponent={<EmptyState icon="people-outline" title="No team members" height={240} />}
+          renderItem={({ item: m }) => {
+            const on = shift[m.userId] ?? false;
+            return (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 }}>
+                <Avatar name={m.fullName || m.email} size={44} online={isManager ? on : m.isActive} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[typo.bodyStrong, { color: t.text }]} numberOfLines={1}>{m.fullName || m.email}</Text>
+                  <Text style={[typo.caption, { color: t.muted }]} numberOfLines={1}>{[m.role?.name, m.department?.name].filter(Boolean).join(" · ") || "—"}</Text>
+                </View>
+                {isManager ? (
+                  <View style={{ alignItems: "center", width: 58 }}>
+                    <Switch value={on} onValueChange={(v) => toggle(m, v)} disabled={busyId === m.userId} trackColor={{ true: t.green, false: t.slate300 }} thumbColor="#fff" />
+                    <Text style={{ fontSize: 10, color: t.muted, marginTop: 2, fontWeight: "600" }}>{on ? "On shift" : "Off"}</Text>
+                  </View>
+                ) : (
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: m.isActive ? t.green : t.faint }} />
+                )}
+              </View>
+            );
+          }}
+        />
       )}
-    />
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  center: { padding: 40, alignItems: "center" },
-  muted: { color: colors.muted, fontSize: 14 },
-  row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.white, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: colors.border },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: "#fff", fontWeight: "800", fontSize: 16 },
-  name: { color: colors.text, fontSize: 15, fontWeight: "600" },
-  meta: { color: colors.muted, fontSize: 12, marginTop: 2 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  shiftLabel: { fontSize: 10, color: colors.muted, marginTop: 2, fontWeight: "600" },
-});
