@@ -2,6 +2,7 @@ import { apiFetch } from "@/api/client";
 
 export type DashKpi = { value: number; delta: number };
 export type DashGuest = { id: string; code: string; guest: string; room: string | null; roomType: string; nights: number; total: number; paid: number; balance: number; status: string };
+export type DashTicket = { id: string; code: string; subject: string; room?: string | null; category?: string | null; priority?: string | null; status: string; createdAt?: string | null };
 
 export type DashAnalytics = {
   range: { from: string; to: string; days: number };
@@ -13,7 +14,7 @@ export type DashAnalytics = {
     arrivals: DashGuest[]; departures: DashGuest[]; inHouse: DashGuest[]; upcoming: DashGuest[]; balances: DashGuest[];
     payment: { totalOutstanding: number; totalCollectedInHouse: number };
   };
-  tickets: { activeCount: number; resolvedCount: number };
+  tickets: { activeCount: number; resolvedCount: number; active?: DashTicket[] };
 };
 
 /** Role-aware dashboard payload — same engine the web dashboard uses. */

@@ -1,111 +1,62 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { FlatList, RefreshControl, Text, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 
 import { useAuthStore } from "@/store/useAuthStore";
 import { listRoomBlocks, type RoomBlock } from "@/api/ops";
-import { colors } from "@/theme";
+import { Card, EmptyState, IconChip, Screen, ScreenHeader, Skeleton, StatusBadge } from "@/components/kit";
+import { radius, space, tabular, type as typo, useTheme } from "@/theme";
+import type { AppNav } from "@/navigation/types";
 
-function formatDate(iso: string | null | undefined): string {
+const fmt = (iso?: string | null) => {
   if (!iso) return "";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
-function dateRange(start?: string | null, end?: string | null): string | null {
-  const s = formatDate(start);
-  const e = formatDate(end);
-  if (s && e) return `${s} → ${e}`;
-  if (s) return `From ${s}`;
-  if (e) return `Until ${e}`;
-  return null;
-}
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+const range = (s?: string | null, e?: string | null) => {
+  const a = fmt(s); const b = fmt(e);
+  return a && b ? `${a} → ${b}` : a ? `From ${a}` : b ? `Until ${b}` : null;
+};
 
 export function BlockedRoomsScreen() {
+  const t = useTheme();
+  const nav = useNavigation<AppNav>();
   const hotelId = useAuthStore((s) => s.activeHotelId);
-  const [items, setItems] = useState<RoomBlock[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<RoomBlock[] | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
+  useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
   const load = useCallback(async () => {
     if (!hotelId) return;
-    setLoading(true);
-    try {
-      setItems(await listRoomBlocks(hotelId));
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
+    try { setItems(await listRoomBlocks(hotelId)); } catch { setItems([]); }
   }, [hotelId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  if (!hotelId) return <Center text="No hotel selected." />;
+  useEffect(() => { void load(); }, [load]);
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Blocked Rooms</Text>
-      </View>
-      {loading && items.length === 0 ? (
-        <Center text="Loading…" spinner />
+    <Screen>
+      <ScreenHeader title="Blocked rooms" subtitle="View only" onBack={() => nav.goBack()} />
+      {items === null ? (
+        <View style={{ padding: space.base, gap: 10 }}>{[0, 1, 2].map((i) => <Skeleton key={i} height={92} radius={radius.lg} />)}</View>
       ) : (
         <FlatList
           data={items}
           keyExtractor={(b) => b.id}
-          contentContainerStyle={{ padding: 12, paddingBottom: 28 }}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.blue} />}
-          ListEmptyComponent={<Center text="No blocked rooms." />}
-          renderItem={({ item }) => {
-            const range = dateRange(item.startDate, item.endDate);
-            return (
-              <View style={styles.card}>
-                <View style={styles.rowBetween}>
-                  <View style={styles.roomTag}>
-                    <Ionicons name="bed-outline" size={16} color={colors.navy} />
-                    <Text style={styles.roomNumber}>{item.room?.roomNumber ?? "—"}</Text>
-                  </View>
-                  {item.blockType ? (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>{item.blockType}</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={styles.reason}>{item.reason ?? "No reason provided"}</Text>
-                {range ? <Text style={styles.meta}>{range}</Text> : null}
+          contentContainerStyle={{ padding: space.base, gap: 10 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
+          ListEmptyComponent={<EmptyState icon="lock-closed-outline" title="No blocked rooms" hint="All rooms are available." height={240} />}
+          renderItem={({ item }) => (
+            <Card accent={t.amber}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                <IconChip icon="bed-outline" color={t.amber} />
+                <Text style={[{ fontSize: 18, fontWeight: "800", color: t.text }, tabular]}>{item.room?.roomNumber ?? "—"}</Text>
+                {item.blockType ? <View style={{ marginLeft: "auto" }}><StatusBadge label={item.blockType.replace(/_/g, " ")} color={t.amber} /></View> : null}
               </View>
-            );
-          }}
+              <Text style={[typo.body, { color: t.text }]}>{item.reason ?? "No reason provided"}</Text>
+              {range(item.startDate, item.endDate) ? <Text style={[typo.caption, { color: t.muted, marginTop: 6 }, tabular]}>{range(item.startDate, item.endDate)}</Text> : null}
+            </Card>
+          )}
         />
       )}
-    </View>
+    </Screen>
   );
 }
-
-function Center({ text, spinner }: { text: string; spinner?: boolean }) {
-  return (
-    <View style={styles.center}>
-      {spinner ? <ActivityIndicator color={colors.blue} /> : null}
-      <Text style={styles.centerText}>{text}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  header: { backgroundColor: colors.navy, paddingHorizontal: 16, paddingVertical: 14 },
-  headerTitle: { color: colors.white, fontSize: 18, fontWeight: "700" },
-  card: { backgroundColor: colors.white, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border },
-  rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  roomTag: { flexDirection: "row", alignItems: "center", gap: 6 },
-  roomNumber: { color: colors.text, fontSize: 16, fontWeight: "700" },
-  badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: colors.amber + "22" },
-  badgeText: { fontSize: 11, fontWeight: "700", color: colors.amber, textTransform: "capitalize" },
-  reason: { color: colors.text, fontSize: 14, marginTop: 8 },
-  meta: { color: colors.muted, fontSize: 12, marginTop: 6 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30, gap: 8 },
-  centerText: { color: colors.muted, fontSize: 14 },
-});

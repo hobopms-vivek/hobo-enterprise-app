@@ -1,363 +1,131 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 
 import { useAuthStore } from "@/store/useAuthStore";
 import { createTask } from "@/api/tickets";
 import { listDepartments, type Department } from "@/api/ops";
+import { Button, Card, Screen, ScreenHeader, Sheet } from "@/components/kit";
+import { priorityColor, radius, space, tint, type as typo, useTheme } from "@/theme";
 import type { AppNav, AppStackParamList } from "@/navigation/types";
-import { colors, priorityColor } from "@/theme";
 
 const CATEGORIES = ["REQUEST", "COMPLAINT", "URGENT", "MAINTENANCE", "FNB", "LOST_FOUND"] as const;
 const PRIORITIES = ["low", "normal", "high", "critical"] as const;
-
 type Category = (typeof CATEGORIES)[number];
 type Priority = (typeof PRIORITIES)[number];
 
 export function CreateTaskScreen() {
+  const t = useTheme();
+  const nav = useNavigation<AppNav>();
+  const { params } = useRoute<RouteProp<AppStackParamList, "CreateTask">>();
   const hotelId = useAuthStore((s) => s.activeHotelId);
-  const navigation = useNavigation<AppNav>();
-  const route = useRoute<RouteProp<AppStackParamList, "CreateTask">>();
-  const roomId = route.params?.roomId;
-  const roomNumber = route.params?.roomNumber;
 
   const [subject, setSubject] = useState("");
   const [category, setCategory] = useState<Category>("REQUEST");
   const [priority, setPriority] = useState<Priority>("normal");
   const [description, setDescription] = useState("");
-  const [completionMins, setCompletionMins] = useState("");
-  const [slaMins, setSlaMins] = useState("");
-
+  const [completionMins, setCompletionMins] = useState("30");
+  const [slaMins, setSlaMins] = useState("15");
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [departmentId, setDepartmentId] = useState<string | undefined>(undefined);
-  const [deptModalOpen, setDeptModalOpen] = useState(false);
-  const [deptLoading, setDeptLoading] = useState(false);
-
-  const [submitting, setSubmitting] = useState(false);
+  const [departmentId, setDepartmentId] = useState<string | undefined>();
+  const [deptOpen, setDeptOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useLayoutEffect(() => {
-    navigation.setOptions({ title: "New Task" });
-  }, [navigation]);
-
-  useEffect(() => {
-    let active = true;
-    if (!hotelId) return;
-    setDeptLoading(true);
-    listDepartments(hotelId)
-      .then((d) => {
-        if (active) setDepartments(d);
-      })
-      .catch(() => {
-        if (active) setDepartments([]);
-      })
-      .finally(() => {
-        if (active) setDeptLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [hotelId]);
-
+  useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
+  useEffect(() => { if (hotelId) listDepartments(hotelId).then(setDepartments).catch(() => setDepartments([])); }, [hotelId]);
   const selectedDept = departments.find((d) => d.id === departmentId);
 
   const onSubmit = useCallback(async () => {
-    if (!hotelId || submitting) return;
-    if (!subject.trim()) {
-      setError("Subject is required.");
-      return;
-    }
-    setError(null);
-    setSubmitting(true);
+    if (!hotelId || busy) return;
+    if (!subject.trim()) { setError("Subject is required."); return; }
+    setError(null); setBusy(true);
     try {
-      const cm = parseInt(completionMins, 10);
-      const sla = parseInt(slaMins, 10);
+      const cm = parseInt(completionMins, 10); const sla = parseInt(slaMins, 10);
       await createTask(hotelId, {
-        subject: subject.trim(),
-        category,
-        priority,
-        departmentId,
-        roomId,
+        subject: subject.trim(), category, priority, departmentId, roomId: params?.roomId,
         description: description.trim() || undefined,
         completionMinutes: Number.isFinite(cm) && cm > 0 ? cm : undefined,
         slaMinutes: Number.isFinite(sla) && sla > 0 ? sla : undefined,
       });
-      navigation.goBack();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create task.");
-    } finally {
-      setSubmitting(false);
-    }
-  }, [hotelId, submitting, subject, category, priority, departmentId, roomId, description, completionMins, slaMins, navigation]);
+      nav.goBack();
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed to create task."); }
+    finally { setBusy(false); }
+  }, [hotelId, busy, subject, category, priority, departmentId, params?.roomId, description, completionMins, slaMins, nav]);
 
-  if (!hotelId) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.centerText}>No hotel selected.</Text>
-      </View>
-    );
-  }
+  const Chip = ({ active, label, color, onPress }: { active: boolean; label: string; color?: string; onPress: () => void }) => (
+    <Pressable onPress={onPress} style={{ backgroundColor: active ? (color ?? t.primary) : t.surface, borderWidth: 1, borderColor: active ? (color ?? t.primary) : t.border, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 8 }}>
+      <Text style={{ color: active ? "#fff" : t.muted, fontSize: 12.5, fontWeight: "600", textTransform: "capitalize" }}>{label.replace(/_/g, " ")}</Text>
+    </Pressable>
+  );
+  const input = { borderWidth: 1, borderColor: t.border, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 11, fontSize: 14.5, color: t.text, backgroundColor: t.surface } as const;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      {error ? (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorBannerText}>{error}</Text>
-        </View>
-      ) : null}
-
-      {roomNumber ? (
-        <View style={styles.roomBanner}>
-          <Text style={styles.roomBannerText}>Room {roomNumber}</Text>
-        </View>
-      ) : null}
-
-      <View style={styles.card}>
-        <Text style={styles.label}>Subject *</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="What needs doing?"
-          placeholderTextColor={colors.muted}
-          value={subject}
-          onChangeText={setSubject}
-        />
-
-        <Text style={styles.label}>Category</Text>
-        <View style={styles.chipRow}>
-          {CATEGORIES.map((c) => (
-            <Pressable
-              key={c}
-              onPress={() => setCategory(c)}
-              style={[styles.chip, category === c && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, category === c && styles.chipTextActive]}>{c}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Text style={styles.label}>Priority</Text>
-        <View style={styles.chipRow}>
-          {PRIORITIES.map((p) => {
-            const active = priority === p;
-            return (
-              <Pressable
-                key={p}
-                onPress={() => setPriority(p)}
-                style={[
-                  styles.chip,
-                  active && { backgroundColor: priorityColor[p], borderColor: priorityColor[p] },
-                ]}
-              >
-                <Text style={[styles.chipText, styles.chipTextCap, active && styles.chipTextActive]}>{p}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <Text style={styles.label}>Department</Text>
-        <Pressable style={styles.select} onPress={() => setDeptModalOpen(true)}>
-          <Text style={[styles.selectText, !selectedDept && styles.selectPlaceholder]}>
-            {selectedDept ? selectedDept.name : "Select department (optional)"}
-          </Text>
-        </Pressable>
-
-        <View style={styles.row}>
-          <View style={styles.rowItem}>
-            <Text style={styles.label}>Completion timer (min)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="optional"
-              placeholderTextColor={colors.muted}
-              value={completionMins}
-              onChangeText={(t) => setCompletionMins(t.replace(/[^0-9]/g, ""))}
-              keyboardType="number-pad"
-            />
+    <Screen>
+      <ScreenHeader title="New task" onBack={() => nav.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: space.base, gap: 12, paddingBottom: 100 }} keyboardShouldPersistTaps="handled">
+        {params?.roomNumber ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: tint(t.primary, "14"), borderRadius: radius.md, padding: 12 }}>
+            <Ionicons name="bed-outline" size={16} color={t.primary} />
+            <Text style={{ color: t.primary, fontWeight: "700", fontSize: 13.5 }}>For Room {params.roomNumber}</Text>
           </View>
-          <View style={styles.rowItem}>
-            <Text style={styles.label}>SLA (min)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="optional"
-              placeholderTextColor={colors.muted}
-              value={slaMins}
-              onChangeText={(t) => setSlaMins(t.replace(/[^0-9]/g, ""))}
-              keyboardType="number-pad"
-            />
+        ) : null}
+        {error ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: tint(t.red, "14"), borderRadius: radius.md, padding: 10 }}>
+            <Ionicons name="alert-circle" size={16} color={t.red} /><Text style={{ color: t.red, fontSize: 13, flex: 1 }}>{error}</Text>
           </View>
-        </View>
-        <Text style={styles.hint}>If the work runs past the completion timer, the manager is notified — the task stays with you.</Text>
+        ) : null}
 
-        <Text style={styles.label}>Description</Text>
-        <TextInput
-          style={[styles.input, styles.multiline]}
-          placeholder="Add details…"
-          placeholderTextColor={colors.muted}
-          value={description}
-          onChangeText={setDescription}
-          multiline
-          textAlignVertical="top"
-        />
+        <Card style={{ gap: 6 }}>
+          <Text style={[typo.label, { color: t.muted, marginBottom: 6 }]}>Subject *</Text>
+          <TextInput value={subject} onChangeText={setSubject} placeholder="e.g. Extra towels needed" placeholderTextColor={t.faint} style={input} />
+
+          <Text style={[typo.label, { color: t.muted, marginTop: 14, marginBottom: 8 }]}>Category</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{CATEGORIES.map((c) => <Chip key={c} active={category === c} label={c} onPress={() => setCategory(c)} />)}</View>
+
+          <Text style={[typo.label, { color: t.muted, marginTop: 14, marginBottom: 8 }]}>Priority</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{PRIORITIES.map((p) => <Chip key={p} active={priority === p} label={p} color={priorityColor[p]} onPress={() => setPriority(p)} />)}</View>
+
+          <Text style={[typo.label, { color: t.muted, marginTop: 14, marginBottom: 6 }]}>Department</Text>
+          <Pressable onPress={() => setDeptOpen(true)} style={[input, { flexDirection: "row", alignItems: "center" }]}>
+            <Text style={{ flex: 1, color: selectedDept ? t.text : t.faint, fontSize: 14.5 }}>{selectedDept ? selectedDept.name : "Select department (optional)"}</Text>
+            <Ionicons name="chevron-down" size={16} color={t.faint} />
+          </Pressable>
+
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[typo.label, { color: t.muted, marginBottom: 6 }]}>Completion (min)</Text>
+              <TextInput value={completionMins} onChangeText={(v) => setCompletionMins(v.replace(/[^0-9]/g, ""))} keyboardType="number-pad" style={input} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[typo.label, { color: t.muted, marginBottom: 6 }]}>SLA / escalate (min)</Text>
+              <TextInput value={slaMins} onChangeText={(v) => setSlaMins(v.replace(/[^0-9]/g, ""))} keyboardType="number-pad" style={input} />
+            </View>
+          </View>
+          <Text style={[typo.caption, { color: t.faint, marginTop: 6 }]}>Escalates to a manager if not accepted in time.</Text>
+
+          <Text style={[typo.label, { color: t.muted, marginTop: 14, marginBottom: 6 }]}>Description</Text>
+          <TextInput value={description} onChangeText={setDescription} placeholder="Add details…" placeholderTextColor={t.faint} multiline textAlignVertical="top" style={[input, { minHeight: 88 }]} />
+        </Card>
+      </ScrollView>
+
+      <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: space.base, backgroundColor: t.surface, borderTopWidth: 1, borderTopColor: t.border }}>
+        <Button title="Create task" icon="add" loading={busy} onPress={onSubmit} />
       </View>
 
-      <Pressable
-        onPress={() => void onSubmit()}
-        disabled={submitting}
-        style={[styles.submitBtn, { opacity: submitting ? 0.6 : 1 }]}
-      >
-        {submitting ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.submitText}>Create Task</Text>
-        )}
-      </Pressable>
-
-      <Modal
-        visible={deptModalOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setDeptModalOpen(false)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setDeptModalOpen(false)}>
-          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Select department</Text>
-            {deptLoading ? (
-              <ActivityIndicator color={colors.blue} style={{ marginVertical: 20 }} />
-            ) : (
-              <ScrollView style={{ maxHeight: 360 }}>
-                <Pressable
-                  style={styles.modalRow}
-                  onPress={() => {
-                    setDepartmentId(undefined);
-                    setDeptModalOpen(false);
-                  }}
-                >
-                  <Text style={styles.modalRowTitle}>None</Text>
-                </Pressable>
-                {departments.map((d) => (
-                  <Pressable
-                    key={d.id}
-                    style={styles.modalRow}
-                    onPress={() => {
-                      setDepartmentId(d.id);
-                      setDeptModalOpen(false);
-                    }}
-                  >
-                    <Text style={styles.modalRowTitle}>{d.name}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-            <Pressable style={styles.modalClose} onPress={() => setDeptModalOpen(false)}>
-              <Text style={styles.modalCloseText}>Close</Text>
+      <Sheet visible={deptOpen} onClose={() => setDeptOpen(false)} title="Department">
+        <ScrollView style={{ maxHeight: 360 }}>
+          <Pressable onPress={() => { setDepartmentId(undefined); setDeptOpen(false); }} style={{ paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: t.divider }}><Text style={[typo.bodyStrong, { color: t.muted }]}>None</Text></Pressable>
+          {departments.map((d) => (
+            <Pressable key={d.id} onPress={() => { setDepartmentId(d.id); setDeptOpen(false); }} style={{ paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: t.divider, flexDirection: "row", alignItems: "center" }}>
+              <Text style={[typo.bodyStrong, { color: t.text, flex: 1 }]}>{d.name}</Text>
+              {departmentId === d.id ? <Ionicons name="checkmark" size={18} color={t.primary} /> : null}
             </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </ScrollView>
+          ))}
+        </ScrollView>
+        <View style={{ height: space.base }} />
+      </Sheet>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 12, paddingBottom: 40 },
-  card: {
-    backgroundColor: colors.white,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  label: { color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6, marginTop: 14 },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: colors.text,
-    backgroundColor: colors.white,
-  },
-  multiline: { minHeight: 90 },
-  row: { flexDirection: "row", gap: 10 },
-  rowItem: { flex: 1 },
-  hint: { color: colors.muted, fontSize: 11, marginTop: 6 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: colors.slate100,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: { backgroundColor: colors.blue, borderColor: colors.blue },
-  chipText: { color: colors.text, fontSize: 12, fontWeight: "700" },
-  chipTextCap: { textTransform: "capitalize" },
-  chipTextActive: { color: "#fff" },
-  select: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: colors.white,
-  },
-  selectText: { color: colors.text, fontSize: 14, fontWeight: "600" },
-  selectPlaceholder: { color: colors.muted, fontWeight: "400" },
-  submitBtn: {
-    marginTop: 16,
-    backgroundColor: colors.blue,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  submitText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  roomBanner: {
-    backgroundColor: colors.navy,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 10,
-  },
-  roomBannerText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  errorBanner: {
-    backgroundColor: colors.red + "18",
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.red + "44",
-  },
-  errorBannerText: { color: colors.red, fontSize: 13, fontWeight: "600" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30, gap: 8, backgroundColor: colors.bg },
-  centerText: { color: colors.muted, fontSize: 14 },
-  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
-  modalSheet: {
-    backgroundColor: colors.white,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    padding: 18,
-    paddingBottom: 28,
-  },
-  modalTitle: { color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: 12 },
-  modalRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
-  modalRowTitle: { color: colors.text, fontSize: 15, fontWeight: "600" },
-  modalClose: {
-    marginTop: 14,
-    backgroundColor: colors.slate100,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  modalCloseText: { color: colors.text, fontWeight: "700" },
-});

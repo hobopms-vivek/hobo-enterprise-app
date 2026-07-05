@@ -2,9 +2,18 @@ import { apiFetch } from "@/api/client";
 
 // ─── Departments (for Create Task + transfer pickers) ───
 export type Department = { id: string; key: string; name: string };
+// The config endpoint requires `hotel_management.department.read` (admin/manager
+// only), so attendants who can create tasks got an empty dropdown. Prefer the
+// whatsapp-scoped list (gated by the same permission a task-creator holds) and
+// fall back to the config list for older servers.
 export async function listDepartments(hotelId: string): Promise<Department[]> {
-  const r = await apiFetch<{ items: Department[] }>(`/hotels/${hotelId}/config/departments`);
-  return r.items ?? [];
+  try {
+    const r = await apiFetch<{ items: Department[] }>(`/hotels/${hotelId}/whatsapp/departments`);
+    return r.items ?? [];
+  } catch {
+    const r = await apiFetch<{ items: Department[] }>(`/hotels/${hotelId}/config/departments`).catch(() => ({ items: [] as Department[] }));
+    return r.items ?? [];
+  }
 }
 
 // ─── Team members (for reassign picker + team view) ───
@@ -35,15 +44,20 @@ type RawUser = {
 export async function listMembers(hotelId: string): Promise<Member[]> {
   const r = await apiFetch<{ users?: RawUser[] }>(`/hotels/${hotelId}/users`);
   return (r.users ?? []).map((u) => {
-    const m0 = u.memberships?.[0];
+    const memberships = u.memberships ?? [];
+    // A user can hold several memberships/roles — surface the most senior role
+    // (lowest level) and the first department, rather than only memberships[0].
+    const allRoles = memberships.flatMap((m) => m.roles ?? []);
+    const role = allRoles.length ? allRoles.reduce((a, b) => (b.level < a.level ? b : a)) : null;
+    const deptM = memberships.find((m) => m.departmentName);
     return {
       userId: u.id,
       fullName: u.fullName,
       email: u.email,
       phone: u.phone ?? null,
       isActive: u.isActive,
-      department: m0?.departmentName ? { id: m0.departmentId ?? "", key: "", name: m0.departmentName } : null,
-      role: m0?.roles?.[0] ?? null,
+      department: deptM?.departmentName ? { id: deptM.departmentId ?? "", key: "", name: deptM.departmentName } : null,
+      role,
     };
   });
 }

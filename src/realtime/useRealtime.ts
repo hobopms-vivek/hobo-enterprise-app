@@ -10,14 +10,26 @@ export type RealtimeType =
   | "ticket.assigned"
   | "ticket.escalated"
   | "ticket.updated"
+  | "ticket.overdue"
+  | "ticket.cancelled"
   | "notification"
   | "chat.message"
   | "presence.changed"
-  | "feedback.created";
+  | "housekeeping.approval"
+  | "feedback.created"
+  | "lead.updated"
+  | "booking.deletion_request"
+  | "booking.cancellation_request"
+  | "banquet.deletion_request"
+  | "banquet.cancellation_request";
 
 export type RealtimeEvent = { type: RealtimeType; hotelId: string; payload: unknown; at: string };
 
-const TYPES: RealtimeType[] = ["ticket.assigned", "ticket.escalated", "ticket.updated", "notification", "chat.message", "presence.changed", "feedback.created"];
+const TYPES: RealtimeType[] = [
+  "ticket.assigned", "ticket.escalated", "ticket.updated", "ticket.overdue", "ticket.cancelled",
+  "notification", "chat.message", "presence.changed", "housekeeping.approval", "feedback.created",
+  "lead.updated", "booking.deletion_request", "booking.cancellation_request", "banquet.deletion_request", "banquet.cancellation_request",
+];
 
 /**
  * Subscribe to the hotel's live SSE stream. EventSource can't set headers in a

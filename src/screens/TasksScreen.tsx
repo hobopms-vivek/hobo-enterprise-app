@@ -1,234 +1,189 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
+import { actOnTicket, listTickets, type Ticket } from "@/api/tickets";
 import { useAuthStore } from "@/store/useAuthStore";
-import { actOnTicket, listTickets, type Ticket, type TicketAction } from "@/api/tickets";
 import { useRealtime } from "@/realtime/useRealtime";
 import { buzzNewTask } from "@/services/alert";
 import { slaLabel } from "@/utils/sla";
-import { EmptyState } from "@/components/ui";
+import { FinishTaskSheet } from "@/components/FinishTaskSheet";
+import { Button, Card, EmptyState, FilterChips, Screen, ScreenHeader, SegmentedTabs, Skeleton, StatusBadge } from "@/components/kit";
+import { priorityColor, radius, space, statusColor, tabular, tint, type as typo, useTheme } from "@/theme";
 import type { AppNav } from "@/navigation/types";
-import { colors, priorityColor, statusColor, shadow } from "@/theme";
 
-type Bucket = "new" | "in_progress" | "done";
-const BUCKETS: { key: Bucket; label: string; statuses: string[] }[] = [
-  { key: "new", label: "New", statuses: ["OPEN", "ASSIGNED"] },
-  { key: "in_progress", label: "In Progress", statuses: ["IN_PROGRESS", "ESCALATED"] },
-  { key: "done", label: "Done", statuses: ["RESOLVED", "CLOSED"] },
-];
-
-// Hobo-exp parity: a task is AUTO-ACCEPTED on assignment, so the assignee never
-// taps "Accept" — their first button is "Start" (→ en route), then "Complete".
-// A manager (level ≤ 3) is the one who Approves/Rejects a completed task.
-function fieldActions(t: Ticket, me: string | undefined, isManager: boolean): { label: string; action: TicketAction; color: string }[] {
-  if (t.status === "RESOLVED" || t.status === "CLOSED") return [];
-  const step = t.workflowStep ?? "ACCEPTED";
-  if (step === "DONE") {
-    if (isManager) {
-      return [
-        { label: "Approve", action: "approve", color: colors.green },
-        { label: "Reject", action: "reject_done", color: colors.red },
-      ];
-    }
-    return []; // assignee just waits for the manager to approve
-  }
-  if (t.assignedToId && t.assignedToId === me) {
-    if (step === "EN_ROUTE" || step === "AT_LOCATION") return [{ label: "Complete Task", action: "done", color: colors.green }];
-    return [{ label: "Start", action: "en_route", color: colors.blue }]; // PENDING / ACCEPTED
-  }
-  return [];
-}
+type Bucket = "new" | "progress" | "done";
+const BUCKET_STATUSES: Record<Bucket, string[]> = {
+  new: ["OPEN", "ASSIGNED"],
+  progress: ["IN_PROGRESS", "ESCALATED"],
+  done: ["RESOLVED", "CLOSED"],
+};
+type PFilter = "all" | "critical" | "high" | "normal" | "low";
 
 export function TasksScreen() {
-  const hotelId = useAuthStore((s) => s.activeHotelId);
-  const me = useAuthStore((s) => s.user?.id);
+  const t = useTheme();
+  const nav = useNavigation<AppNav>();
+  const user = useAuthStore((s) => s.user);
   const hotels = useAuthStore((s) => s.hotels);
-  const roleLevel = hotels.find((h) => h.id === hotelId)?.role?.level ?? 5;
-  const isManager = roleLevel <= 3; // SSA/SA/Admin/Manager
-  const isAttendant = roleLevel >= 4; // attendants see only their own tasks
-  const navigation = useNavigation<AppNav>();
+  const activeHotelId = useAuthStore((s) => s.activeHotelId);
+  const hotel = hotels.find((h) => h.id === activeHotelId);
+  const level = hotel?.role?.level ?? 5;
+  const isManager = level <= 3;
+  const isAttendant = level >= 4;
+
+  const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [bucket, setBucket] = useState<Bucket>("new");
-  const [items, setItems] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
-  // Tracks the hotel a fetch was started for, so a response that lands after the
-  // user switched hotels can be discarded instead of overwriting the new list.
-  const hotelIdRef = useRef(hotelId);
-  useEffect(() => { hotelIdRef.current = hotelId; }, [hotelId]);
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(t);
-  }, []);
+  const [pf, setPf] = useState<PFilter>("all");
+  const [refreshing, setRefreshing] = useState(false);
+  const [finishId, setFinishId] = useState<string | null>(null);
+  const [, setNow] = useState(Date.now());
+  const hotelRef = useRef(activeHotelId);
+  hotelRef.current = activeHotelId;
 
   const load = useCallback(async () => {
-    if (!hotelId) return;
-    setLoading(true);
-    const forHotel = hotelId;
+    if (!activeHotelId) return;
     try {
-      const data = await listTickets(forHotel, { mine: isAttendant });
-      if (forHotel !== hotelIdRef.current) return; // hotel switched mid-flight — drop stale data
-      setItems(data);
+      const list = await listTickets(activeHotelId, { mine: isAttendant });
+      if (hotelRef.current === activeHotelId) setTickets(list);
     } catch {
-      if (forHotel === hotelIdRef.current) setItems([]);
-    } finally {
-      if (forHotel === hotelIdRef.current) setLoading(false);
+      setTickets([]);
     }
-  }, [hotelId, isAttendant]);
+  }, [activeHotelId, isAttendant]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Header actions: New Task + QR scan — only managers create/assign tasks
-  // (attendants receive them; read-only roles get nothing).
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: isManager
-        ? () => (
-            <View style={{ flexDirection: "row", gap: 18, paddingRight: 4 }}>
-              <Pressable onPress={() => navigation.navigate("QRScan")} hitSlop={8}>
-                <Ionicons name="qr-code-outline" size={22} color="#fff" />
-              </Pressable>
-              <Pressable onPress={() => navigation.navigate("CreateTask")} hitSlop={8}>
-                <Ionicons name="add" size={26} color="#fff" />
-              </Pressable>
-            </View>
-          )
-        : undefined,
-    });
-  }, [navigation, isManager]);
-
-  // Live refresh + buzz when a ticket is assigned/updated on this hotel.
-  useRealtime(hotelId, (e) => {
-    if (e.type === "ticket.assigned") buzzNewTask();
-    if (e.type === "ticket.assigned" || e.type === "ticket.updated") void load();
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
+  useRealtime(activeHotelId, (e) => {
+    if (e.type === "ticket.assigned") { buzzNewTask(); void load(); }
+    else if (e.type === "ticket.updated" || e.type === "ticket.escalated") void load();
   });
 
-  const filtered = useMemo(() => {
-    const statuses = BUCKETS.find((b) => b.key === bucket)!.statuses;
-    return items.filter((t) => statuses.includes(t.status));
-  }, [items, bucket]);
-
   const counts = useMemo(() => {
-    const c: Record<Bucket, number> = { new: 0, in_progress: 0, done: 0 };
-    for (const t of items) for (const b of BUCKETS) if (b.statuses.includes(t.status)) c[b.key]++;
+    const c: Record<Bucket, number> = { new: 0, progress: 0, done: 0 };
+    (tickets ?? []).forEach((tk) => {
+      (Object.keys(BUCKET_STATUSES) as Bucket[]).forEach((b) => { if (BUCKET_STATUSES[b].includes(tk.status)) c[b]++; });
+    });
     return c;
-  }, [items]);
+  }, [tickets]);
 
-  async function act(t: Ticket, action: TicketAction) {
-    if (!hotelId) return;
-    setBusyId(t.id);
-    try {
-      await actOnTicket(hotelId, t.id, action, action === "done" ? { delivered: true } : undefined);
-      await load();
-    } catch (e) {
-      Alert.alert("Action failed", e instanceof Error ? e.message : "Please try again.");
-    } finally {
-      setBusyId(null);
-    }
+  const rows = useMemo(() =>
+    (tickets ?? [])
+      .filter((tk) => BUCKET_STATUSES[bucket].includes(tk.status))
+      .filter((tk) => pf === "all" || tk.priority === pf)
+      .sort((a, b) => (a.slaDueAt ?? "9").localeCompare(b.slaDueAt ?? "9")),
+  [tickets, bucket, pf]);
+
+  async function act(tk: Ticket, action: Parameters<typeof actOnTicket>[2]) {
+    try { await actOnTicket(activeHotelId!, tk.id, action); }
+    catch (e) { Alert.alert("Action failed", e instanceof Error ? e.message : "Please try again."); }
+    finally { void load(); }
   }
 
-  if (!hotelId) return <Center text="No hotel selected." />;
-
   return (
-    <View style={styles.screen}>
-      <View style={styles.tabs}>
-        {BUCKETS.map((b) => (
-          <Pressable key={b.key} onPress={() => setBucket(b.key)} style={[styles.tab, bucket === b.key && styles.tabActive]}>
-            <Text style={[styles.tabText, bucket === b.key && styles.tabTextActive]}>
-              {b.label} {counts[b.key] ? `(${counts[b.key]})` : ""}
-            </Text>
-          </Pressable>
-        ))}
+    <Screen>
+      <ScreenHeader
+        title="Tasks"
+        right={isManager ? (
+          <View style={{ flexDirection: "row", gap: 4 }}>
+            <Pressable onPress={() => nav.navigate("QRScan")} hitSlop={8} style={{ padding: 6 }}><Ionicons name="qr-code-outline" size={22} color={t.text} /></Pressable>
+            <Pressable onPress={() => nav.navigate("CreateTask")} hitSlop={8} style={{ padding: 6 }}><Ionicons name="add" size={26} color={t.primary} /></Pressable>
+          </View>
+        ) : undefined}
+      />
+      <View style={{ paddingHorizontal: space.base, paddingTop: 12, paddingBottom: 10 }}>
+        <SegmentedTabs
+          value={bucket}
+          onChange={setBucket}
+          tabs={[{ key: "new", label: "New", count: counts.new }, { key: "progress", label: "In progress", count: counts.progress }, { key: "done", label: "Done", count: counts.done }]}
+        />
+      </View>
+      <View style={{ paddingBottom: 8 }}>
+        <FilterChips
+          value={pf}
+          onChange={setPf}
+          chips={[{ key: "all", label: "All priorities" }, { key: "critical", label: "Critical" }, { key: "high", label: "High" }, { key: "normal", label: "Normal" }, { key: "low", label: "Low" }]}
+        />
       </View>
 
-      {loading && items.length === 0 ? (
-        <Center text="Loading…" spinner />
+      {tickets === null ? (
+        <View style={{ paddingHorizontal: space.base, gap: 12 }}>
+          {[0, 1, 2].map((i) => <Skeleton key={i} height={120} radius={radius.lg} />)}
+        </View>
       ) : (
         <FlatList
-          data={filtered}
-          keyExtractor={(t) => t.id}
-          contentContainerStyle={{ padding: 12, paddingBottom: 28 }}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.blue} />}
-          ListEmptyComponent={<EmptyState icon="checkmark-done-outline" title="No tasks here" hint="New requests will show up automatically." height={220} />}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Pressable onPress={() => navigation.navigate("TicketDetail", { ticketId: item.id })}>
-                <View style={styles.rowBetween}>
-                  <Text style={styles.code}>{item.code}</Text>
-                  <View style={[styles.badge, { backgroundColor: (statusColor[item.status] ?? colors.muted) + "22" }]}>
-                    <Text style={[styles.badgeText, { color: statusColor[item.status] ?? colors.muted }]}>
-                      {item.workflowStep && item.status !== "RESOLVED" ? item.workflowStep : item.status}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.subject}>{item.subject}</Text>
-                <View style={styles.metaRow}>
-                  <Text style={[styles.pill, { color: priorityColor[item.priority] ?? colors.muted }]}>{item.priority}</Text>
-                  <Text style={styles.meta}>· {item.category}</Text>
-                  {item.guest?.fullName ? <Text style={styles.meta}>· {item.guest.fullName}</Text> : null}
-                  {(() => {
-                    const s = slaLabel(item.slaDueAt, now);
-                    if (!s || item.status === "RESOLVED" || item.status === "CLOSED") return null;
-                    return <Text style={[styles.meta, { color: s.overdue ? colors.red : colors.muted, fontWeight: s.overdue ? "700" : "400" }]}>· {s.text}</Text>;
-                  })()}
-                </View>
-              </Pressable>
-              <View style={styles.actions}>
-                {fieldActions(item, me, isManager).map((a) => (
-                  <Pressable
-                    key={a.action}
-                    onPress={() => act(item, a.action)}
-                    disabled={busyId === item.id}
-                    style={[styles.actionBtn, { backgroundColor: a.color, opacity: busyId === item.id ? 0.6 : 1 }]}
-                  >
-                    <Text style={styles.actionText}>{a.label}</Text>
-                  </Pressable>
-                ))}
-                {item.workflowStep === "DONE" && item.assignedToId === me && !isManager ? (
-                  <Text style={styles.awaiting}>⏳ Awaiting manager approval</Text>
-                ) : null}
-              </View>
-            </View>
+          data={rows}
+          keyExtractor={(tk) => tk.id}
+          contentContainerStyle={{ padding: space.base, paddingTop: 4, gap: 12 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
+          ListEmptyComponent={<EmptyState icon="checkmark-done-circle-outline" title="No tasks here" hint="You're all caught up." />}
+          renderItem={({ item: tk }) => (
+            <TicketCard
+              tk={tk}
+              isMine={tk.assignedToId === user?.id}
+              isManager={isManager}
+              onOpen={() => nav.navigate("TicketDetail", { ticketId: tk.id })}
+              onStart={() => act(tk, "en_route")}
+              onComplete={() => setFinishId(tk.id)}
+              onApprove={() => act(tk, "approve")}
+              onReject={() => act(tk, "reject_done")}
+            />
           )}
         />
       )}
-    </View>
+
+      <FinishTaskSheet visible={!!finishId} onClose={() => setFinishId(null)} hotelId={activeHotelId!} ticketId={finishId ?? ""} onFinished={load} />
+    </Screen>
   );
 }
 
-function Center({ text, spinner }: { text: string; spinner?: boolean }) {
+function TicketCard({ tk, isMine, isManager, onOpen, onStart, onComplete, onApprove, onReject }: {
+  tk: Ticket; isMine: boolean; isManager: boolean; onOpen: () => void;
+  onStart: () => void; onComplete: () => void; onApprove: () => void; onReject: () => void;
+}) {
+  const t = useTheme();
+  const escalated = tk.status === "ESCALATED";
+  const sla = slaLabel(tk.slaDueAt);
+  const step = tk.workflowStep;
+  const done = step === "DONE";
+
+  let action: React.ReactNode = null;
+  if (tk.status !== "RESOLVED" && tk.status !== "CLOSED") {
+    if (done && isManager) {
+      action = (
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Button title="Approve" variant="success" icon="checkmark" size="sm" full={false} style={{ flex: 1 }} onPress={onApprove} />
+          <Button title="Reject" variant="outline" icon="close" size="sm" full={false} style={{ flex: 1 }} onPress={onReject} />
+        </View>
+      );
+    } else if (done && isMine) {
+      action = <Text style={[typo.caption, { color: t.amber, fontWeight: "700" }]}>⏳ Awaiting manager approval</Text>;
+    } else if (isMine) {
+      if (step === "EN_ROUTE" || step === "AT_LOCATION") action = <Button title="Complete task" icon="checkmark-circle" size="sm" variant="success" onPress={onComplete} />;
+      else action = <Button title="Start task" icon="play" size="sm" onPress={onStart} />;
+    }
+  }
+
   return (
-    <View style={styles.center}>
-      {spinner ? <ActivityIndicator color={colors.blue} /> : null}
-      <Text style={styles.centerText}>{text}</Text>
-    </View>
+    <Card onPress={onOpen} accent={escalated ? t.red : undefined}>
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+        <Text style={[typo.label, { color: t.muted }, tabular]}>{tk.code}</Text>
+        <View style={{ marginLeft: "auto" }}><StatusBadge label={tk.status.replace("_", " ")} color={statusColor[tk.status] ?? t.muted} /></View>
+      </View>
+      <Text style={[typo.h2, { color: t.text, marginBottom: 8 }]} numberOfLines={2}>{tk.subject}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: action ? 12 : 0 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <Ionicons name="flag" size={12} color={priorityColor[tk.priority] ?? t.muted} />
+          <Text style={{ color: priorityColor[tk.priority] ?? t.muted, fontSize: 12, fontWeight: "700", textTransform: "capitalize" }}>{tk.priority}</Text>
+        </View>
+        {tk.category ? <Text style={[typo.caption, { color: t.muted }]}>· {tk.category.replace("_", " ")}</Text> : null}
+        {tk.guest?.fullName ? <Text style={[typo.caption, { color: t.muted }]} numberOfLines={1}>· {tk.guest.fullName}</Text> : null}
+        {sla ? (
+          <View style={{ marginLeft: "auto", backgroundColor: tint(sla.overdue ? t.red : t.amber, "22"), borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+            <Text style={{ color: sla.overdue ? t.red : t.amber, fontSize: 11, fontWeight: "700" }}>{sla.text}</Text>
+          </View>
+        ) : null}
+      </View>
+      {action}
+    </Card>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  tabs: { flexDirection: "row", backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
-  tab: { flex: 1, paddingVertical: 12, alignItems: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
-  tabActive: { borderBottomColor: colors.blue },
-  tabText: { color: colors.muted, fontWeight: "600", fontSize: 13 },
-  tabTextActive: { color: colors.blue },
-  card: { backgroundColor: colors.white, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border, ...shadow.card },
-  rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  code: { color: colors.muted, fontSize: 12, fontWeight: "700" },
-  badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { fontSize: 11, fontWeight: "700" },
-  subject: { color: colors.text, fontSize: 15, fontWeight: "600", marginTop: 6 },
-  metaRow: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 4 },
-  pill: { fontSize: 12, fontWeight: "700", textTransform: "capitalize" },
-  meta: { color: colors.muted, fontSize: 12 },
-  actions: { flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" },
-  actionBtn: { borderRadius: 9, paddingHorizontal: 14, paddingVertical: 9 },
-  actionText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  awaiting: { color: colors.amber, fontSize: 12, fontWeight: "700", alignSelf: "center" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30, gap: 8 },
-  centerText: { color: colors.muted, fontSize: 14 },
-});

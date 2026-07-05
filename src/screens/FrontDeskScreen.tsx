@@ -1,133 +1,145 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
-import { useAuthStore } from "@/store/useAuthStore";
 import { getDashboard, type DashAnalytics, type DashGuest } from "@/api/analytics";
+import { useAuthStore } from "@/store/useAuthStore";
 import { useRealtime } from "@/realtime/useRealtime";
-import { Pill, EmptyState, Loader } from "@/components/ui";
-import { colors, radius, shadow, statusColor } from "@/theme";
+import { EmptyState, ListRow, Screen, ScreenHeader, Sheet, Skeleton, StatusBadge } from "@/components/kit";
+import { radius, space, statusColor, tabular, tint, type as typo, useTheme } from "@/theme";
+import type { AppNav } from "@/navigation/types";
 
 const money = (n: number) => `₹${Math.round(n || 0).toLocaleString("en-IN")}`;
-const moneyShort = (n: number) => { const v = Math.abs(n || 0); if (v >= 1e5) return `₹${(n / 1e5).toFixed(2)}L`; if (v >= 1e3) return `₹${(n / 1e3).toFixed(1)}K`; return `₹${Math.round(n || 0)}`; };
-
-type TabKey = "arrivals" | "inHouse" | "departures" | "upcoming" | "balances";
-const TABS: { key: TabKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: "arrivals", label: "Arrivals", icon: "log-in" },
-  { key: "inHouse", label: "In-house", icon: "people" },
-  { key: "departures", label: "Departures", icon: "log-out" },
-  { key: "upcoming", label: "Upcoming", icon: "calendar" },
-  { key: "balances", label: "Balance due", icon: "wallet" },
-];
+const moneyShort = (n: number) => (n >= 1e5 ? `₹${(n / 1e5).toFixed(1)}L` : n >= 1e3 ? `₹${(n / 1e3).toFixed(1)}K` : money(n));
+type Tab = "arrivals" | "inHouse" | "departures" | "upcoming" | "balances";
 
 export function FrontDeskScreen() {
+  const t = useTheme();
+  const nav = useNavigation<AppNav>();
+  const hotels = useAuthStore((s) => s.hotels);
   const hotelId = useAuthStore((s) => s.activeHotelId);
+  const managerial = (hotels.find((h) => h.id === hotelId)?.role?.level ?? 5) <= 3;
+
   const [data, setData] = useState<DashAnalytics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<TabKey>("arrivals");
+  const [tab, setTab] = useState<Tab>("arrivals");
+  const [refreshing, setRefreshing] = useState(false);
+  const [peek, setPeek] = useState<DashGuest | null>(null);
+
+  useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
 
   const load = useCallback(async () => {
     if (!hotelId) return;
-    setLoading(true);
-    setData(await getDashboard(hotelId).catch(() => null));
-    setLoading(false);
+    try { setData(await getDashboard(hotelId)); } catch { setData(null); }
   }, [hotelId]);
-
-  useEffect(() => { void load(); }, [load]);
-  useRealtime(hotelId, (e) => { if (e.type.startsWith("ticket.")) void load(); });
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useRealtime(hotelId, (e) => { if (e.type.startsWith("ticket.") || e.type === "notification") void load(); });
 
   const ops = data?.operations;
-  const managerial = data?.role.isManagerial ?? false;
-  const tabs = useMemo(() => TABS.filter((t) => t.key !== "balances" || managerial), [managerial]);
-  const rows: DashGuest[] = ops ? ops[tab] : [];
-  const count = (k: TabKey) => ops?.counts[k === "inHouse" ? "inHouse" : k === "balances" ? "withBalance" : k] ?? 0;
+  const isMoney = managerial && !!data?.role?.isManagerial;
 
-  if (loading && !data) return <Loader />;
+  const allTabs: { key: Tab; label: string; count: number; managerial?: boolean }[] = [
+    { key: "arrivals", label: "Arrivals", count: ops?.counts.arrivals ?? 0 },
+    { key: "inHouse", label: "In-house", count: ops?.counts.inHouse ?? 0 },
+    { key: "departures", label: "Departures", count: ops?.counts.departures ?? 0 },
+    { key: "upcoming", label: "Upcoming", count: ops?.counts.upcoming ?? 0 },
+    { key: "balances", label: "Balance", count: ops?.counts.withBalance ?? 0, managerial: true },
+  ];
+  const tabs = allTabs.filter((x) => !x.managerial || isMoney);
+
+  const rows: DashGuest[] = useMemo(() => (ops ? (ops[tab] as DashGuest[]) ?? [] : []), [ops, tab]);
 
   return (
-    <View style={styles.screen}>
-      {/* Summary strip */}
-      {ops ? (
-        <View style={styles.summary}>
-          <Sum label="In-house" value={ops.counts.inHouse} color={colors.green} />
-          <Sum label="Arrivals" value={ops.counts.arrivals} color={colors.blue} />
-          <Sum label="Departures" value={ops.counts.departures} color={colors.violet} />
-          {managerial ? <Sum label="To collect" value={moneyShort(ops.payment.totalOutstanding)} color={colors.teal} /> : null}
-        </View>
-      ) : null}
+    <Screen>
+      <ScreenHeader title="Front Desk" subtitle="View only" onBack={() => nav.goBack()} />
 
-      {/* Segmented tabs */}
-      <View style={styles.tabsWrap}>
-        <FlatList horizontal showsHorizontalScrollIndicator={false} data={tabs} keyExtractor={(t) => t.key}
-          contentContainerStyle={{ gap: 8, paddingHorizontal: 12 }}
-          renderItem={({ item }) => {
-            const active = tab === item.key;
-            return (
-              <Pressable onPress={() => setTab(item.key)} style={[styles.tab, active && styles.tabActive]}>
-                <Ionicons name={item.icon} size={14} color={active ? "#fff" : colors.muted} />
-                <Text style={[styles.tabText, active && { color: "#fff" }]}>{item.label}</Text>
-                <View style={[styles.tabBadge, active && { backgroundColor: "rgba(255,255,255,0.25)" }]}>
-                  <Text style={[styles.tabBadgeText, active && { color: "#fff" }]}>{count(item.key)}</Text>
-                </View>
-              </Pressable>
-            );
-          }} />
+      {/* Summary strip */}
+      <View style={{ flexDirection: "row", gap: 10, padding: space.base }}>
+        <Summary label="In-house" value={ops?.counts.inHouse ?? 0} color={t.violet} />
+        <Summary label="Arrivals" value={ops?.counts.arrivals ?? 0} color={t.green} />
+        <Summary label="Departures" value={ops?.counts.departures ?? 0} color={t.amber} />
+        {isMoney ? <Summary label="To collect" value={moneyShort(ops?.payment.totalOutstanding ?? 0)} color={t.teal} /> : null}
       </View>
 
-      <FlatList
-        data={rows}
-        keyExtractor={(g) => g.id}
-        contentContainerStyle={{ padding: 12, paddingBottom: 28, gap: 8 }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.blue} />}
-        ListEmptyComponent={<EmptyState icon="bed-outline" title="Nothing here" hint="No guests in this list right now." height={200} />}
-        renderItem={({ item: g }) => (
-          <View style={styles.card}>
-            <View style={styles.roomChip}><Text style={styles.roomChipText}>{g.room ?? g.code.slice(-3)}</Text></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.name} numberOfLines={1}>{g.guest}</Text>
-              <Text style={styles.meta}>{g.roomType} · {g.nights} nt{g.room ? ` · Rm ${g.room}` : ""}</Text>
-            </View>
-            {tab === "balances" || (managerial && g.balance > 0) ? (
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={[styles.bal, { color: g.balance > 0 ? colors.red : colors.green }]}>{g.balance > 0 ? money(g.balance) : "Paid"}</Text>
-                <Text style={styles.balMeta}>of {moneyShort(g.total)}</Text>
+      {/* Tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44 }} contentContainerStyle={{ gap: 8, paddingHorizontal: space.base, paddingBottom: 8 }}>
+        {tabs.map((x) => {
+          const active = tab === x.key;
+          return (
+            <Pressable key={x.key} onPress={() => setTab(x.key)} style={{ backgroundColor: active ? t.primary : t.surface, borderWidth: 1, borderColor: active ? t.primary : t.border, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7 }}>
+              <Text style={{ fontSize: 12.5, fontWeight: "600", color: active ? "#fff" : t.muted }}>{x.label} {x.count}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {data === null ? (
+        <View style={{ paddingHorizontal: space.base, gap: 8 }}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={62} radius={radius.md} />)}</View>
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={(g) => g.id}
+          contentContainerStyle={{ paddingHorizontal: space.base, paddingBottom: 24 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
+          ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: t.divider }} />}
+          ListEmptyComponent={<EmptyState icon="people-outline" title="Nothing here" hint="No guests in this list." height={260} />}
+          renderItem={({ item: g }) => (
+            <ListRow
+              onPress={() => setPeek(g)}
+              chevron
+              leading={
+                <View style={{ minWidth: 46, height: 30, borderRadius: 8, backgroundColor: tint(g.room ? t.primary : t.muted, "18"), alignItems: "center", justifyContent: "center", paddingHorizontal: 6 }}>
+                  <Text style={[{ color: g.room ? t.primary : t.muted, fontWeight: "800", fontSize: 12 }, tabular]}>{g.room ?? "—"}</Text>
+                </View>
+              }
+              title={g.guest}
+              subtitle={`${g.roomType} · ${g.nights}n · ${g.code}`}
+              right={
+                isMoney && (tab === "balances" || tab === "departures")
+                  ? <Text style={[{ color: g.balance > 0 ? t.text : t.green, fontWeight: "700", fontSize: 13 }, tabular]}>{g.balance > 0 ? money(g.balance) : "Paid"}</Text>
+                  : <StatusBadge label={(g.status || "").replace(/_/g, " ")} color={statusColor[g.status] ?? t.muted} />
+              }
+            />
+          )}
+        />
+      )}
+
+      <Sheet visible={!!peek} onClose={() => setPeek(null)} title="Booking">
+        {peek ? (
+          <View style={{ paddingBottom: 8, gap: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <View style={{ minWidth: 52, height: 34, borderRadius: 9, backgroundColor: tint(peek.room ? t.primary : t.muted, "18"), alignItems: "center", justifyContent: "center", paddingHorizontal: 8 }}>
+                <Text style={[{ color: peek.room ? t.primary : t.muted, fontWeight: "800", fontSize: 14 }, tabular]}>{peek.room ?? "—"}</Text>
               </View>
-            ) : (
-              <Pill label={g.status.replace(/_/g, " ").toLowerCase()} color={statusColor[g.status] ?? colors.muted} />
-            )}
+              <View style={{ flex: 1 }}>
+                <Text style={[typo.h2, { color: t.text }]} numberOfLines={1}>{peek.guest}</Text>
+                <Text style={[typo.caption, { color: t.muted }, tabular]}>{peek.roomType} · {peek.nights}n · {peek.code}</Text>
+              </View>
+              <StatusBadge label={(peek.status || "").replace(/_/g, " ")} color={statusColor[peek.status] ?? t.muted} />
+            </View>
+            {isMoney ? (
+              <View style={{ backgroundColor: t.surfaceSunken, borderRadius: radius.md, padding: 12, gap: 6 }}>
+                {[["Total", peek.total], ["Paid", peek.paid], ["Balance", peek.balance]].map(([lbl, val], i) => (
+                  <View key={lbl as string} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                    <Text style={[typo.body, { color: i === 2 ? t.text : t.muted, fontWeight: i === 2 ? "700" : "400" }]}>{lbl}</Text>
+                    <Text style={[{ color: i === 2 ? (Number(val) > 0 ? t.text : t.green) : t.text, fontWeight: i === 2 ? "800" : "600" }, tabular]}>{i === 2 && Number(val) <= 0 ? "Paid" : money(Number(val))}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            <Text style={[typo.caption, { color: t.faint, textAlign: "center" }]}>Check-in / check-out & payments are done on the web desk.</Text>
           </View>
-        )}
-      />
-    </View>
+        ) : null}
+      </Sheet>
+    </Screen>
   );
 }
 
-function Sum({ label, value, color }: { label: string; value: string | number; color: string }) {
+function Summary({ label, value, color }: { label: string; value: string | number; color: string }) {
+  const t = useTheme();
   return (
-    <View style={styles.sum}>
-      <Text style={[styles.sumValue, { color }]} numberOfLines={1}>{value}</Text>
-      <Text style={styles.sumLabel}>{label}</Text>
+    <View style={{ flex: 1, backgroundColor: t.surface, borderWidth: 1, borderColor: t.border, borderRadius: radius.md, paddingVertical: 10, alignItems: "center", gap: 1 }}>
+      <Text style={[{ fontSize: 18, fontWeight: "800", color }, tabular]} numberOfLines={1}>{value}</Text>
+      <Text style={[typo.caption, { color: t.muted }]}>{label}</Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  summary: { flexDirection: "row", gap: 8, padding: 12 },
-  sum: { flex: 1, backgroundColor: colors.white, borderRadius: radius.md, paddingVertical: 11, alignItems: "center", borderWidth: 1, borderColor: colors.border, ...shadow.card },
-  sumValue: { fontSize: 18, fontWeight: "800" },
-  sumLabel: { fontSize: 10.5, color: colors.muted, marginTop: 2, fontWeight: "600" },
-  tabsWrap: { paddingBottom: 4 },
-  tab: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.white, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: colors.border },
-  tabActive: { backgroundColor: colors.blue, borderColor: colors.blue },
-  tabText: { fontSize: 12.5, fontWeight: "700", color: colors.muted },
-  tabBadge: { minWidth: 18, height: 18, borderRadius: 9, backgroundColor: colors.slate100, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
-  tabBadgeText: { fontSize: 10.5, fontWeight: "800", color: colors.muted },
-  card: { flexDirection: "row", alignItems: "center", gap: 11, backgroundColor: colors.white, borderRadius: radius.md, padding: 12, borderWidth: 1, borderColor: colors.border, ...shadow.card },
-  roomChip: { width: 38, height: 38, borderRadius: 10, backgroundColor: colors.slate50, alignItems: "center", justifyContent: "center" },
-  roomChipText: { fontSize: 12, fontWeight: "800", color: colors.muted },
-  name: { fontSize: 14, fontWeight: "700", color: colors.navy },
-  meta: { fontSize: 11.5, color: colors.muted, marginTop: 2 },
-  bal: { fontSize: 14, fontWeight: "800" },
-  balMeta: { fontSize: 10.5, color: colors.muted, marginTop: 1 },
-});

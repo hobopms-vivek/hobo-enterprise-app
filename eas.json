@@ -27,6 +27,17 @@
         "EXPO_PUBLIC_API_BASE_URL": "https://hobo-enterprise-production.up.railway.app"
       }
     },
+    "preview": {
+      "distribution": "internal",
+      "channel": "staging",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "staging",
+        "EXPO_PUBLIC_API_BASE_URL": "https://hobo-enterprise-production.up.railway.app"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "channel": "production",
@@ -35,7 +46,7 @@
       },
       "env": {
         "APP_VARIANT": "production",
-        "EXPO_PUBLIC_API_BASE_URL": "https://REPLACE-WITH-YOUR-PROD-DOMAIN"
+        "EXPO_PUBLIC_API_BASE_URL": "https://hoboenterprise.in"
       }
     }
   },

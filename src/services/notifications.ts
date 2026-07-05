@@ -21,13 +21,22 @@ Notifications.setNotificationHandler({
  * (src/lib/push/send.ts) delivers to Expo tokens via the Expo push API.
  * Best-effort — never throws.
  */
+// Android channel sound/importance are immutable once created on a device — a
+// version bump on the channel id (not just its settings) is required to make
+// already-installed devices pick up the new sound. "escalation" here refers
+// to the bundled ./src/assets/sounds/escalation.mp3 (registered via the
+// expo-notifications config plugin's `sounds` array in app.json), so this only
+// takes effect in a rebuilt binary, not an OTA update.
+export const PUSH_CHANNEL_ID = "tasks_v2";
+
 export async function registerForPush(hotelId: string): Promise<void> {
   try {
     if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("tasks", {
+      await Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
         name: "Tasks & alerts",
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
+        sound: "escalation",
       });
     }
     const existing = await Notifications.getPermissionsAsync();

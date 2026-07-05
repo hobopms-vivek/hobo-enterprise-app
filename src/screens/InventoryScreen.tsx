@@ -1,96 +1,93 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
+import { listStock, type StockRow } from "@/api/inventory";
 import { useAuthStore } from "@/store/useAuthStore";
-import { listInventoryItems, type InventoryItem } from "@/api/ops";
-import { colors } from "@/theme";
+import { StockMovementSheet } from "@/components/StockMovementSheet";
+import { Card, EmptyState, IconChip, Screen, ScreenHeader, SearchBar, Skeleton, StatusBadge } from "@/components/kit";
+import { radius, space, tabular, tint, type as typo, useTheme } from "@/theme";
+import type { AppNav } from "@/navigation/types";
 
 export function InventoryScreen() {
-  const hotelId = useAuthStore((s) => s.activeHotelId);
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const t = useTheme();
+  const nav = useNavigation<AppNav>();
+  const hotels = useAuthStore((s) => s.hotels);
+  const hotelId = useAuthStore((s) => s.activeHotelId)!;
+  const level = hotels.find((h) => h.id === hotelId)?.role?.level ?? 5;
+  const canMove = level <= 4; // read-only visitors can't record movements
 
+  const [stock, setStock] = useState<StockRow[] | null>(null);
+  const [q, setQ] = useState("");
+  const [store, setStore] = useState<string>("all");
+  const [lowOnly, setLowOnly] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sel, setSel] = useState<StockRow | null>(null);
+
+  useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
   const load = useCallback(async () => {
-    if (!hotelId) return;
-    setLoading(true);
-    try {
-      setItems(await listInventoryItems(hotelId));
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
+    try { setStock(await listStock(hotelId)); } catch { setStock([]); }
   }, [hotelId]);
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const stores = useMemo(() => Array.from(new Map((stock ?? []).map((s) => [s.storeId, s.store])).entries()).map(([id, name]) => ({ id, name })), [stock]);
+  const rows = useMemo(() => (stock ?? [])
+    .filter((s) => store === "all" || s.storeId === store)
+    .filter((s) => !lowOnly || s.low)
+    .filter((s) => !q || s.item.toLowerCase().includes(q.toLowerCase())), [stock, store, lowOnly, q]);
 
-  if (!hotelId) return <Center text="No hotel selected." />;
+  const chips = [{ id: "all", name: "All stores" }, ...stores];
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Inventory</Text>
+    <Screen>
+      <ScreenHeader
+        title="Inventory"
+        onBack={() => nav.goBack()}
+        right={<Pressable onPress={() => nav.navigate("Linen")} hitSlop={8} style={{ flexDirection: "row", alignItems: "center", gap: 4, padding: 6 }}><Ionicons name="shirt-outline" size={18} color={t.primary} /><Text style={{ color: t.primary, fontWeight: "700", fontSize: 13 }}>Linen</Text></Pressable>}
+      />
+      <View style={{ padding: space.base, paddingBottom: 8 }}><SearchBar value={q} onChangeText={setQ} placeholder="Search items" /></View>
+      {stores.length > 1 ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: space.base, paddingBottom: 8 }}>
+          {chips.map((c) => {
+            const active = store === c.id;
+            return <Pressable key={c.id} onPress={() => setStore(c.id)} style={{ backgroundColor: active ? t.primary : t.surface, borderWidth: 1, borderColor: active ? t.primary : t.border, borderRadius: radius.pill, paddingHorizontal: 13, paddingVertical: 6 }}><Text style={{ color: active ? "#fff" : t.muted, fontSize: 12.5, fontWeight: "600" }}>{c.name}</Text></Pressable>;
+          })}
+        </View>
+      ) : null}
+      <View style={{ paddingHorizontal: space.base, paddingBottom: 8 }}>
+        <Pressable onPress={() => setLowOnly((x) => !x)} style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", backgroundColor: lowOnly ? tint(t.red, "18") : t.surface, borderWidth: 1, borderColor: lowOnly ? t.red : t.border, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 }}>
+          <Ionicons name="alert-circle-outline" size={14} color={lowOnly ? t.red : t.muted} /><Text style={{ color: lowOnly ? t.red : t.muted, fontSize: 12.5, fontWeight: "600" }}>Low stock only</Text>
+        </Pressable>
       </View>
-      {loading && items.length === 0 ? (
-        <Center text="Loading…" spinner />
+
+      {stock === null ? (
+        <View style={{ paddingHorizontal: space.base, gap: 10 }}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={66} radius={radius.lg} />)}</View>
       ) : (
         <FlatList
-          data={items}
-          keyExtractor={(i) => i.id}
-          contentContainerStyle={{ padding: 12, paddingBottom: 28 }}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.blue} />}
-          ListEmptyComponent={<Center text="No inventory items." />}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <View style={styles.rowBetween}>
-                <View style={styles.nameTag}>
-                  <Ionicons name="cube-outline" size={16} color={colors.navy} />
-                  <Text style={styles.name}>{item.name}</Text>
+          data={rows}
+          keyExtractor={(s) => s.id}
+          contentContainerStyle={{ padding: space.base, paddingTop: 4, gap: 10 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
+          ListEmptyComponent={<EmptyState icon="cube-outline" title="No stock" hint="No items match this filter." height={240} />}
+          renderItem={({ item: s }) => (
+            <Card onPress={canMove ? () => setSel(s) : undefined}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                <IconChip icon="cube-outline" color={s.low ? t.red : t.amber} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[typo.bodyStrong, { color: t.text }]} numberOfLines={1}>{s.item}</Text>
+                  <Text style={[typo.caption, { color: t.muted }]}>{stores.length > 1 ? `${s.store} · ` : ""}{s.reorderLevel > 0 ? `Reorder at ${s.reorderLevel}` : s.category ?? ""}</Text>
                 </View>
-                {item.category ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{item.category}</Text>
-                  </View>
-                ) : null}
+                {s.low ? <StatusBadge label="Low" color={t.red} /> : null}
+                <Text style={[{ fontSize: 18, fontWeight: "800", color: t.text }, tabular]}>{s.quantity}<Text style={[typo.caption, { color: t.muted }]}> {s.unit ?? ""}</Text></Text>
+                {canMove ? <Ionicons name="chevron-forward" size={18} color={t.faint} /> : null}
               </View>
-              <View style={styles.metaRow}>
-                {item.unit ? <Text style={styles.meta}>Unit: {item.unit}</Text> : null}
-                {item.reorderLevel != null ? (
-                  <Text style={styles.meta}>· Reorder at: {item.reorderLevel}</Text>
-                ) : null}
-              </View>
-            </View>
+            </Card>
           )}
         />
       )}
-    </View>
+
+      <StockMovementSheet visible={!!sel} onClose={() => setSel(null)} hotelId={hotelId} row={sel} onDone={load} />
+    </Screen>
   );
 }
-
-function Center({ text, spinner }: { text: string; spinner?: boolean }) {
-  return (
-    <View style={styles.center}>
-      {spinner ? <ActivityIndicator color={colors.blue} /> : null}
-      <Text style={styles.centerText}>{text}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  header: { backgroundColor: colors.navy, paddingHorizontal: 16, paddingVertical: 14 },
-  headerTitle: { color: colors.white, fontSize: 18, fontWeight: "700" },
-  card: { backgroundColor: colors.white, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border },
-  rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  nameTag: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
-  name: { color: colors.text, fontSize: 15, fontWeight: "700", flexShrink: 1 },
-  badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: colors.blue + "22" },
-  badgeText: { fontSize: 11, fontWeight: "700", color: colors.blue, textTransform: "capitalize" },
-  metaRow: { flexDirection: "row", alignItems: "center", marginTop: 8, gap: 4, flexWrap: "wrap" },
-  meta: { color: colors.muted, fontSize: 12 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 30, gap: 8 },
-  centerText: { color: colors.muted, fontSize: 14 },
-});

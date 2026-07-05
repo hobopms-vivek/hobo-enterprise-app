@@ -1,0 +1,106 @@
+{
+  "project_info": {
+    "project_number": "889986791706",
+    "firebase_url": "https://hobo-experience-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "hobo-experience",
+    "storage_bucket": "hobo-experience.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889986791706:android:e8abbe6283cbaa1216d4a3",
+        "android_client_info": {
+          "package_name": "com.hobo.userslist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA7Opcvpn58Ulv7LNvzIO2jY6y71LYMhPY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889986791706:android:adfaedc0812aafeb16d4a3",
+        "android_client_info": {
+          "package_name": "com.hobostays.enterprise"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA7Opcvpn58Ulv7LNvzIO2jY6y71LYMhPY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889986791706:android:a6ab8d3906d4058416d4a3",
+        "android_client_info": {
+          "package_name": "com.hobostays.enterprise.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA7Opcvpn58Ulv7LNvzIO2jY6y71LYMhPY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889986791706:android:3067cb367e1d89b116d4a3",
+        "android_client_info": {
+          "package_name": "com.hobostays.enterprise.staging"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA7Opcvpn58Ulv7LNvzIO2jY6y71LYMhPY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889986791706:android:517d861bde47ea9016d4a3",
+        "android_client_info": {
+          "package_name": "com.hobostays.hoboexp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA7Opcvpn58Ulv7LNvzIO2jY6y71LYMhPY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
