@@ -5,6 +5,7 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
 import { getDashboard, type DashAnalytics, type DashGuest } from "@/api/analytics";
 import { listTickets, type Ticket } from "@/api/tickets";
+import { getHousekeeping, type HkSummary } from "@/api/housekeeping";
 import { getPresence, setPresence } from "@/api/presence";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useRealtime } from "@/realtime/useRealtime";
@@ -37,7 +38,26 @@ export function HomeScreen() {
   const isManager = level <= 3;
   const on = (k?: string) => !k || (hotel?.enabledModules?.includes(k) ?? true);
 
+  // ── Department-tailored home ──────────────────────────────────────────────
+  // The user's department memberships (from /me/hotels) drive a personalised
+  // "Your department" section so each staffer lands on THEIR world. Reuses
+  // existing endpoints only.
+  type DeptScreen = "FrontDesk" | "Housekeeping";
+  type DeptCfg = { label: string; icon: keyof typeof Ionicons.glyphMap; color: string; module?: string; screen?: DeptScreen };
+  const DEPT_CFG: Record<string, DeptCfg> = {
+    front_office: { label: "Front Desk", icon: "people-outline", color: t.teal, module: "front_desk", screen: "FrontDesk" },
+    housekeeping: { label: "Housekeeping", icon: "bed-outline", color: t.green, module: "housekeeping", screen: "Housekeeping" },
+    fnb: { label: "Food & Beverage", icon: "restaurant-outline", color: t.amber, module: "fnb" },
+    maintenance: { label: "Maintenance", icon: "construct-outline", color: t.violet },
+    security: { label: "Security", icon: "shield-checkmark-outline", color: t.blue },
+  };
+  const departments = hotel?.departments ?? [];
+  const primaryDept = departments.find((d) => DEPT_CFG[d.key] && on(DEPT_CFG[d.key].module)) ?? departments[0];
+  const deptKey = primaryDept?.key;
+  const deptCfg = deptKey ? DEPT_CFG[deptKey] : undefined;
+
   const [data, setData] = useState<DashAnalytics | null>(null);
+  const [hkSummary, setHkSummary] = useState<HkSummary | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [onShift, setOnShift] = useState(false);
   const [shiftUntil, setShiftUntil] = useState<string | null>(null);
@@ -55,7 +75,10 @@ export function HomeScreen() {
       getPresence(activeHotelId).catch(() => ({ onShift: false, onShiftUntil: null })),
     ]);
     setData(d); setTickets(tk); setOnShift(p.onShift); setShiftUntil(p.onShiftUntil);
-  }, [activeHotelId, level]);
+    // Housekeeping-department staff get a live rooms summary on their home.
+    if (deptKey === "housekeeping") getHousekeeping(activeHotelId).then((r) => setHkSummary(r.summary ?? null)).catch(() => setHkSummary(null));
+    else setHkSummary(null);
+  }, [activeHotelId, level, deptKey]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   useRealtime(activeHotelId, (e) => {
@@ -72,6 +95,7 @@ export function HomeScreen() {
     });
     return g;
   }, [tickets]);
+  const myMaint = useMemo(() => tickets.filter((tk) => (tk.category ?? "").toUpperCase() === "MAINTENANCE" && !["RESOLVED", "CLOSED"].includes(tk.status)), [tickets]);
 
   async function toggleShift(v: boolean) {
     setOnShift(v);
@@ -93,7 +117,10 @@ export function HomeScreen() {
     { key: "inv", label: "Inventory", icon: "cube-outline", color: t.amber, module: "inventory", go: (n) => n.navigate("Inventory") },
     { key: "team", label: "Team", icon: "people-circle-outline", color: t.blue, manager: true, go: (n) => n.navigate("Team") },
   ];
-  const quick = allQuick.filter((q) => (!q.manager || isManager) && on(q.module));
+  // Put the user's own department's action first.
+  const quick = allQuick
+    .filter((q) => (!q.manager || isManager) && on(q.module))
+    .sort((a, b) => (a.module && a.module === deptCfg?.module ? -1 : 0) - (b.module && b.module === deptCfg?.module ? -1 : 0));
 
   return (
     <Screen>
@@ -108,7 +135,7 @@ export function HomeScreen() {
             <HeaderIcons light onSearch={() => nav.navigate("Search")} />
           </View>
           <Text style={{ color: "#fff", fontSize: 24, fontWeight: "800", marginTop: 16, letterSpacing: -0.4 }}>Hi, {user?.fullName?.split(" ")[0] ?? "there"} 👋</Text>
-          <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, marginTop: 2 }}>{[hotel?.role?.name, hotel?.city].filter(Boolean).join(" · ")}</Text>
+          <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, marginTop: 2 }}>{[hotel?.role?.name, primaryDept?.name, hotel?.city].filter(Boolean).join(" · ")}</Text>
         </HeroHeader>
 
         <View style={{ paddingHorizontal: space.base, marginTop: -14, gap: 18 }}>
@@ -133,6 +160,52 @@ export function HomeScreen() {
               <StatTile label="Escalated" value={my.escalated.length} icon="alert-circle-outline" accent={t.red} onPress={() => setTicketDrill({ title: "Escalated", rows: my.escalated })} />
             </View>
           </View>
+
+          {/* Your department — personalised by the user's department membership */}
+          {deptCfg ? (
+            <View>
+              <SectionHeader
+                title={`${deptCfg.label} · today`}
+                icon={deptCfg.icon}
+                accent={deptCfg.color}
+                right={deptCfg.screen ? <Pressable onPress={() => nav.navigate(deptCfg.screen!)}><Text style={[typo.caption, { color: t.primary, fontWeight: "700" }]}>Open ›</Text></Pressable> : undefined}
+              />
+              {deptKey === "housekeeping" ? (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+                  <StatTile label="Dirty vacant" value={hkSummary?.dirtyVacant ?? 0} icon="brush-outline" accent={t.amber} onPress={() => nav.navigate("Housekeeping")} />
+                  <StatTile label="Cleaning" value={hkSummary?.cleaning ?? 0} icon="water-outline" accent={t.blue} onPress={() => nav.navigate("Housekeeping")} />
+                  <StatTile label="Awaiting" value={hkSummary?.inspectionPending ?? 0} icon="eye-outline" accent={t.violet} onPress={() => nav.navigate("Housekeeping")} />
+                  <StatTile label="Vacant clean" value={hkSummary?.cleanReady ?? 0} icon="checkmark-circle-outline" accent={t.green} onPress={() => nav.navigate("Housekeeping")} />
+                </View>
+              ) : deptKey === "front_office" && ops ? (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+                  <StatTile label="Arrivals" value={ops.counts.arrivals} icon="log-in-outline" accent={t.green} onPress={() => setGuestDrill({ title: "Arrivals today", rows: ops.arrivals })} />
+                  <StatTile label="Departures" value={ops.counts.departures} icon="log-out-outline" accent={t.amber} onPress={() => setGuestDrill({ title: "Departures today", rows: ops.departures })} />
+                  <StatTile label="In-house" value={ops.counts.inHouse} icon="people-outline" accent={t.violet} onPress={() => setGuestDrill({ title: "In-house now", rows: ops.inHouse })} />
+                  <StatTile label="Arriving · 7d" value={ops.counts.upcoming} icon="calendar-outline" accent={t.blue} onPress={() => setGuestDrill({ title: "Arriving next 7 days", rows: ops.upcoming })} />
+                </View>
+              ) : deptKey === "maintenance" ? (
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  <StatTile label="My maintenance" value={myMaint.length} icon="construct-outline" accent={t.violet} onPress={() => setTicketDrill({ title: "My maintenance", rows: myMaint })} />
+                  <StatTile label="Escalated" value={my.escalated.length} icon="alert-circle-outline" accent={t.red} onPress={() => setTicketDrill({ title: "Escalated", rows: my.escalated })} />
+                  <View style={{ flex: 1, minWidth: 100 }} />
+                </View>
+              ) : (
+                <Card onPress={deptCfg.screen ? () => nav.navigate(deptCfg.screen!) : undefined}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: tint(deptCfg.color, "22"), alignItems: "center", justifyContent: "center" }}>
+                      <Ionicons name={deptCfg.icon} size={20} color={deptCfg.color} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[typo.bodyStrong, { color: t.text }]}>{deptCfg.label}</Text>
+                      <Text style={[typo.caption, { color: t.muted }]}>{deptCfg.screen ? "Open your department board" : "Coming to the app soon"}</Text>
+                    </View>
+                    {deptCfg.screen ? <Ionicons name="chevron-forward" size={18} color={t.faint} /> : null}
+                  </View>
+                </Card>
+              )}
+            </View>
+          ) : null}
 
           {/* Today at the hotel (managers) */}
           {isManager && ops ? (

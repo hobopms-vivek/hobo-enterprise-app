@@ -1,10 +1,13 @@
 import React, { useCallback, useLayoutEffect, useState } from "react";
-import { RefreshControl, ScrollView, Text, View } from "react-native";
+import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 
 import { getFolio, type Folio, type FolioCharge, type FolioChargeNode } from "@/api/bookings";
+import { getInvoice } from "@/api/finance";
+import { invoiceHtml } from "@/services/invoiceHtml";
+import { previewHtml, shareHtmlAsPdf } from "@/services/documents";
 import { useAuthStore } from "@/store/useAuthStore";
-import { Card, EmptyState, Screen, ScreenHeader, Skeleton, StatusBadge } from "@/components/kit";
+import { Button, Card, EmptyState, Screen, ScreenHeader, Skeleton, StatusBadge } from "@/components/kit";
 import { radius, space, tabular, tint, type as typo, useTheme } from "@/theme";
 import type { AppNav, AppStackParamList } from "@/navigation/types";
 
@@ -25,14 +28,29 @@ export function FolioScreen() {
   const nav = useNavigation<AppNav>();
   const { params } = useRoute<RouteProp<AppStackParamList, "Folio">>();
   const hotelId = useAuthStore((s) => s.activeHotelId)!;
+  const hotel = useAuthStore((s) => s.hotels.find((h) => h.id === hotelId));
+  // Invoices can be viewed/downloaded by anyone the server lets read them.
+  const canInvoice = !!hotel && hotel.enabledModules.includes("finance") &&
+    (hotel.permissions.includes("finance.invoice.read") || hotel.permissions.includes("front_desk.booking.read"));
   const [folio, setFolio] = useState<Folio | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [busyInv, setBusyInv] = useState<string | null>(null);
 
   useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
   const load = useCallback(async () => {
     try { setFolio(await getFolio(hotelId, params.bookingId)); } catch { setFolio({ charges: [], payments: [], totals: { balance: 0 } }); }
   }, [hotelId, params.bookingId]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  async function openInvoice(id: string, mode: "preview" | "pdf") {
+    setBusyInv(id + mode);
+    try {
+      const html = invoiceHtml(await getInvoice(hotelId, id));
+      if (mode === "preview") await previewHtml(html);
+      else await shareHtmlAsPdf(html, "invoice.pdf");
+    } catch (e) { Alert.alert("Couldn't open invoice", e instanceof Error ? e.message : "Please try again."); }
+    finally { setBusyInv(null); }
+  }
 
   const rs = folio?.roomStay;
   const tot = folio?.totals;
@@ -193,15 +211,23 @@ export function FolioScreen() {
             <Card>
               <Text style={[typo.label, { color: t.muted, marginBottom: 8 }]}>INVOICES</Text>
               {folio.invoices.map((inv) => (
-                <View key={inv.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderTopWidth: 1, borderTopColor: t.divider }}>
-                  <View style={{ flex: 1, paddingRight: 10 }}>
-                    <Text style={[typo.bodyStrong, { color: t.text }]} numberOfLines={1}>{inv.number || inv.displayName || cap(inv.docType)}</Text>
-                    <Text style={[typo.caption, { color: t.muted }]}>{cap(inv.docType)} · {cap(inv.status)}{inv.issuedAt ? ` · ${fdate(inv.issuedAt)}` : ""}</Text>
+                <View key={inv.id} style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: t.divider }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <View style={{ flex: 1, paddingRight: 10 }}>
+                      <Text style={[typo.bodyStrong, { color: t.text }]} numberOfLines={1}>{inv.number || inv.displayName || cap(inv.docType)}</Text>
+                      <Text style={[typo.caption, { color: t.muted }]}>{cap(inv.docType)} · {cap(inv.status)}{inv.issuedAt ? ` · ${fdate(inv.issuedAt)}` : ""}</Text>
+                    </View>
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={[{ color: t.text, fontWeight: "700", fontSize: 14 }, tabular]}>{money(inv.total)}</Text>
+                      {inv.balance > 0 ? <Text style={[typo.caption, { color: t.red }]}>Bal {money(inv.balance)}</Text> : null}
+                    </View>
                   </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={[{ color: t.text, fontWeight: "700", fontSize: 14 }, tabular]}>{money(inv.total)}</Text>
-                    {inv.balance > 0 ? <Text style={[typo.caption, { color: t.red }]}>Bal {money(inv.balance)}</Text> : null}
-                  </View>
+                  {canInvoice ? (
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                      <Button title="View" icon="eye-outline" size="sm" variant="outline" full={false} style={{ flex: 1 }} loading={busyInv === inv.id + "preview"} onPress={() => openInvoice(inv.id, "preview")} />
+                      <Button title="Download PDF" icon="download-outline" size="sm" variant="outline" full={false} style={{ flex: 1 }} loading={busyInv === inv.id + "pdf"} onPress={() => openInvoice(inv.id, "pdf")} />
+                    </View>
+                  ) : null}
                 </View>
               ))}
             </Card>

@@ -49,9 +49,10 @@ export type BanquetEventDetail = {
   payments?: BanquetPayment[];
 };
 
-/** GET /banquet/events — event list (read-only glance). */
+/** GET /banquet/events — event list. Throws ApiError (e.g. 403 module/permission)
+ * so the screen can show WHY it's empty instead of a blank "no events". */
 export async function listBanquetEvents(hotelId: string): Promise<BanquetEvent[]> {
-  const r = await apiFetch<{ items?: BanquetEvent[] }>(`/hotels/${hotelId}/banquet/events`).catch(() => ({ items: [] as BanquetEvent[] }));
+  const r = await apiFetch<{ items?: BanquetEvent[] }>(`/hotels/${hotelId}/banquet/events`);
   return r.items ?? [];
 }
 

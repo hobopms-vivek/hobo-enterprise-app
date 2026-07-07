@@ -7,13 +7,16 @@ import { hkStatusColor, roomStatusColor, tabular, type as typo, useTheme } from 
 
 const nice = (s: string) => s.replace(/_/g, " ").toLowerCase();
 
-/** Room state-machine sheet: start/clean/inspect/approve + DND + out-of-service. */
-export function HousekeepingRoomSheet({ visible, onClose, hotelId, room, isManager, onDone }: {
-  visible: boolean; onClose: () => void; hotelId: string; room: HkRoom | null; isManager: boolean; onDone: () => void;
+/** Room state-machine sheet: start/clean/inspect/approve + DND + out-of-service.
+ * `canRoom` = holds housekeeping.room_status.update (base writes). Approve/reject/
+ * out-of-service/restore additionally require isManager (level ≤ 3) — mirrors web. */
+export function HousekeepingRoomSheet({ visible, onClose, hotelId, room, isManager, canRoom, onDone }: {
+  visible: boolean; onClose: () => void; hotelId: string; room: HkRoom | null; isManager: boolean; canRoom: boolean; onDone: () => void;
 }) {
   const t = useTheme();
   const [busy, setBusy] = useState(false);
   if (!room) return null;
+  const canManage = canRoom && isManager;
 
   const hk = room.housekeepingStatus;
   const occ = roomOcc(room);
@@ -44,26 +47,32 @@ export function HousekeepingRoomSheet({ visible, onClose, hotelId, room, isManag
       <View style={{ gap: 10, paddingBottom: 8 }}>
         {hardBlocked ? <Text style={[typo.caption, { color: t.red, fontWeight: "700", paddingVertical: 4 }]}>This room is {nice(occ)} — not sellable.</Text> : null}
 
-        {hk === "DIRTY" && !hardBlocked ? <Button title="Start cleaning" icon="brush" loading={busy} onPress={() => run("start_cleaning")} /> : null}
-        {hk === "CLEANING" ? <Button title="Mark done — send for inspection" icon="checkmark-circle" variant="success" loading={busy} onPress={() => run("mark_done")} /> : null}
-        {hk === "INSPECTED" ? (
-          isManager ? (
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Button title="Approve" icon="checkmark-done" variant="success" full={false} style={{ flex: 1 }} loading={busy} onPress={() => run("approve")} />
-              <Button title="Reject" icon="close" variant="outline" full={false} style={{ flex: 1 }} loading={busy} onPress={() => run("reject")} />
-            </View>
-          ) : <Text style={[typo.caption, { color: t.amber, fontWeight: "700", paddingVertical: 6 }]}>⏳ Awaiting supervisor approval</Text>
-        ) : null}
-        {hk === "CLEAN" && !occupied && !hardBlocked ? <Text style={[typo.caption, { color: t.green, fontWeight: "700", paddingVertical: 6 }]}>✓ Vacant &amp; clean</Text> : null}
+        {!canRoom ? (
+          <Text style={[typo.caption, { color: t.muted, paddingVertical: 6 }]}>You have view-only access to housekeeping.</Text>
+        ) : (
+          <>
+            {hk === "DIRTY" && !hardBlocked ? <Button title="Start cleaning" icon="brush" loading={busy} onPress={() => run("start_cleaning")} /> : null}
+            {hk === "CLEANING" ? <Button title="Mark done — send for inspection" icon="checkmark-circle" variant="success" loading={busy} onPress={() => run("mark_done")} /> : null}
+            {hk === "INSPECTED" ? (
+              canManage ? (
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <Button title="Approve" icon="checkmark-done" variant="success" full={false} style={{ flex: 1 }} loading={busy} onPress={() => run("approve")} />
+                  <Button title="Reject" icon="close" variant="outline" full={false} style={{ flex: 1 }} loading={busy} onPress={() => run("reject")} />
+                </View>
+              ) : <Text style={[typo.caption, { color: t.amber, fontWeight: "700", paddingVertical: 6 }]}>⏳ Awaiting supervisor approval</Text>
+            ) : null}
+            {hk === "CLEAN" && !occupied && !hardBlocked ? <Text style={[typo.caption, { color: t.green, fontWeight: "700", paddingVertical: 6 }]}>✓ Vacant &amp; clean</Text> : null}
 
-        {occupied ? (
-          <Button title={room.dnd ? "Clear Do Not Disturb" : "Set Do Not Disturb"} icon="moon-outline" variant="outline" loading={busy} onPress={() => run(room.dnd ? "clear_dnd" : "set_dnd")} />
-        ) : null}
+            {occupied ? (
+              <Button title={room.dnd ? "Clear Do Not Disturb" : "Set Do Not Disturb"} icon="moon-outline" variant="outline" loading={busy} onPress={() => run(room.dnd ? "clear_dnd" : "set_dnd")} />
+            ) : null}
 
-        {/* out-of-service / restore are manager-only; can't OOS an occupied room */}
-        {outOfService
-          ? (isManager ? <Button title="Restore to service" icon="refresh" variant="outline" loading={busy} onPress={() => run("restore")} /> : null)
-          : (isManager && !occupied ? <Button title="Mark out of service" icon="construct-outline" variant="ghost" loading={busy} onPress={() => run("out_of_service")} /> : null)}
+            {/* out-of-service / restore are manager-only; can't OOS an occupied room */}
+            {outOfService
+              ? (canManage ? <Button title="Restore to service" icon="refresh" variant="outline" loading={busy} onPress={() => run("restore")} /> : null)
+              : (canManage && !occupied ? <Button title="Mark out of service" icon="construct-outline" variant="ghost" loading={busy} onPress={() => run("out_of_service")} /> : null)}
+          </>
+        )}
       </View>
     </Sheet>
   );

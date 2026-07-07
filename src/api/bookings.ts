@@ -129,6 +129,7 @@ export type GroupRoom = {
   bookingType?: string; source?: string | null; ratePlan?: string | null;
   roomCharge?: number; roomTax?: number; roomTotal?: number; paid?: number; balance?: number; gstMode?: string;
 };
+export type GroupCharge = { id: string; bookingCode: string; description: string; amount?: number; taxAmount?: number; total: number; category?: string; source?: string };
 export type GroupDetail = {
   id: string; code: string; name: string; type: string; status: string;
   checkInDate: string; checkOutDate: string;
@@ -136,6 +137,7 @@ export type GroupDetail = {
   company?: { id: string; name: string } | null;
   notes?: string | null; balanceDueTiming?: string | null; balanceDueDate?: string | null;
   rooms: GroupRoom[];
+  charges?: GroupCharge[];
   totals?: { roomsPreTax?: number; roomsTax?: number; roomsTotal?: number; miscTotal?: number; grandTotal?: number; paid?: number; balance?: number };
 };
 

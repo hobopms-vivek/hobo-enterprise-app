@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
 import { listBanquetEvents, type BanquetEvent } from "@/api/banquet";
+import { ApiError } from "@/api/client";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useRealtime } from "@/realtime/useRealtime";
 import { Card, EmptyState, Screen, ScreenHeader, SegmentedTabs, Skeleton, StatusBadge } from "@/components/kit";
@@ -21,6 +22,7 @@ export function BanquetScreen() {
   const nav = useNavigation<AppNav>();
   const hotelId = useAuthStore((s) => s.activeHotelId)!;
   const [events, setEvents] = useState<BanquetEvent[] | null>(null);
+  const [err, setErr] = useState<{ title: string; hint: string } | null>(null);
   const [tab, setTab] = useState<Tab>("today");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -28,7 +30,21 @@ export function BanquetScreen() {
 
   useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
   const load = useCallback(async () => {
-    try { setEvents(await listBanquetEvents(hotelId)); } catch { setEvents([]); }
+    try {
+      setErr(null);
+      setEvents(await listBanquetEvents(hotelId));
+    } catch (e) {
+      // Distinguish WHY it's empty: module off vs no permission vs load failure —
+      // otherwise a 403 looks identical to "no events" and hides the real cause.
+      if (e instanceof ApiError && e.status === 403) {
+        setErr(/module/i.test(e.message)
+          ? { title: "Banquet module is off", hint: "Ask an admin to enable the Banquet module for this hotel." }
+          : { title: "No access to banquet", hint: e.message || "Your role can't view banquet events." });
+      } else {
+        setErr({ title: "Couldn't load events", hint: e instanceof Error ? e.message : "Check your connection and pull to refresh." });
+      }
+      setEvents([]);
+    }
   }, [hotelId]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   useRealtime(hotelId, (e) => { if (e.type === "notification" || e.type.startsWith("banquet")) void load(); });
@@ -56,7 +72,7 @@ export function BanquetScreen() {
           keyExtractor={(e) => e.id}
           contentContainerStyle={{ padding: space.base, paddingTop: 4, gap: 12 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
-          ListEmptyComponent={<EmptyState icon="sparkles-outline" title="No events" hint="Nothing in this view." />}
+          ListEmptyComponent={<EmptyState icon={err ? "lock-closed-outline" : "sparkles-outline"} title={err?.title ?? "No events"} hint={err?.hint ?? "Nothing in this view."} />}
           renderItem={({ item: e }) => {
             const bal = Math.max(0, (e.total ?? 0) - (e.advancePaid ?? 0));
             return (
