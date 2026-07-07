@@ -97,6 +97,8 @@ export function GroupDetailScreen() {
             <View style={{ gap: 10 }}>
               {g.rooms.map((r) => {
                 const rbal = r.balance ?? 0;
+                const pax = (r.adults ?? 0) + (r.children ?? 0);
+                const sub = [r.roomType, r.ratePlan, pax ? `${pax}p` : null, r.source].filter(Boolean).join(" · ");
                 return (
                   <Card key={r.id} onPress={() => nav.navigate("BookingDetail", { bookingId: r.id })}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -104,8 +106,9 @@ export function GroupDetailScreen() {
                         <Text style={[{ color: t.primary, fontWeight: "800", fontSize: 13 }, tabular]}>{r.room ?? "—"}</Text>
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={[typo.bodyStrong, { color: t.text }]} numberOfLines={1}>{r.guestName || "Guest"}</Text>
-                        <Text style={[typo.caption, { color: t.muted }, tabular]} numberOfLines={1}>{[r.roomType, `${fmt(r.checkInDate)}–${fmt(r.checkOutDate)}`, r.source].filter(Boolean).join(" · ")}</Text>
+                        <Text style={[typo.bodyStrong, { color: t.text }]} numberOfLines={1}>{r.guestName || "Guest"}{r.code ? ` · ${r.code}` : ""}</Text>
+                        <Text style={[typo.caption, { color: t.muted }]} numberOfLines={1}>{sub || "Room"}</Text>
+                        <Text style={[typo.caption, { color: t.faint }, tabular]} numberOfLines={1}>{fmt(r.checkInDate)}–{fmt(r.checkOutDate)}{(r.roomTotal ?? 0) > 0 ? ` · ${money(r.roomTotal)}` : ""}</Text>
                       </View>
                       <View style={{ alignItems: "flex-end", gap: 4 }}>
                         <StatusBadge label={r.status.replace(/_/g, " ")} color={statusColor[r.status] ?? t.muted} />
@@ -117,6 +120,22 @@ export function GroupDetailScreen() {
               })}
             </View>
           </View>
+
+          {/* Additional (misc) charges across the group */}
+          {g.charges?.length ? (
+            <Card>
+              <Text style={[typo.label, { color: t.muted, marginBottom: 6 }]}>ADDITIONAL CHARGES</Text>
+              {g.charges.map((c) => (
+                <View key={c.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", paddingVertical: 6, borderTopWidth: 1, borderTopColor: t.divider }}>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <Text style={[typo.body, { color: t.text }]} numberOfLines={1}>{c.description}</Text>
+                    <Text style={[typo.caption, { color: t.muted }]}>{[c.bookingCode, cap(c.category)].filter(Boolean).join(" · ")}</Text>
+                  </View>
+                  <Text style={[{ color: t.text, fontWeight: "700", fontSize: 14 }, tabular]}>{money(c.total)}</Text>
+                </View>
+              ))}
+            </Card>
+          ) : null}
         </ScrollView>
       )}
     </Screen>

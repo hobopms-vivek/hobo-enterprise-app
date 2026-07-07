@@ -135,6 +135,28 @@ export const roomStatusColor: Record<string, string> = {
   BLOCKED: colors.muted,
 };
 
+/**
+ * Floor-plan display status → colour + label (the SAME 8 states the web board
+ * computes via roomDisplayStatus / ROOM_STATUS_META). Cells use the room number
+ * in the theme text colour with a tinted colour fill, so it reads in light + dark.
+ */
+export const roomDisplayColor: Record<string, string> = {
+  occupied: colors.blue,
+  confirmed: colors.gold,
+  out_of_order: "#94A3B8",
+  out_of_service: "#EA580C",
+  dirty_vacant: "#475569",
+  cleaning: colors.amber,
+  inspected: colors.red,
+  vacant_clean: colors.green,
+};
+export const roomDisplayLabel: Record<string, string> = {
+  occupied: "Occupied", confirmed: "Confirmed", out_of_order: "Out of order", out_of_service: "Out of service",
+  dirty_vacant: "Dirty vacant", cleaning: "Cleaning", inspected: "Inspected", vacant_clean: "Vacant clean",
+};
+/** Legend / worklist priority order (matches web ROOM_DISPLAY_ORDER). */
+export const ROOM_DISPLAY_ORDER = ["dirty_vacant", "cleaning", "inspected", "vacant_clean", "confirmed", "occupied", "out_of_service", "out_of_order"];
+
 /** Notification category → accent colour (matches web notifications/links.ts intent). */
 export const notifAccent: Record<string, string> = {
   ticket: colors.blue,

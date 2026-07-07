@@ -28,10 +28,15 @@ export function OpsHubScreen() {
     { key: "res", label: "Reservations", sub: "Bookings list", icon: "calendar-outline", color: t.blue, module: "reservations", go: (n) => n.navigate("Reservations") },
     { key: "banq", label: "Banquet", sub: "Events", icon: "sparkles-outline", color: t.violet, module: "banquet", go: (n) => n.navigate("Banquet") },
     { key: "guests", label: "Guests", sub: "Lookup & ID scan", icon: "person-outline", color: t.blue, module: "guest_management", go: (n) => n.navigate("Guests") },
+    { key: "reviews", label: "Reviews", sub: "Ratings & reputation", icon: "star-outline", color: t.gold, module: "guest_management", go: (n) => n.navigate("Reviews") },
+    { key: "leads", label: "Leads", sub: "Enquiry pipeline", icon: "person-add-outline", color: t.pink, manager: true, go: (n) => n.navigate("Leads") },
     { key: "inv", label: "Inventory & Linen", sub: "Stock & counts", icon: "cube-outline", color: t.amber, module: "inventory", go: (n) => n.navigate("Inventory") },
     { key: "blocked", label: "Blocked Rooms", sub: "Out of order / holds", icon: "lock-closed-outline", color: t.red, module: "housekeeping", go: (n) => n.navigate("BlockedRooms") },
     { key: "appr", label: "Approvals", sub: "Delete & cancel requests", icon: "shield-checkmark-outline", color: t.amber, manager: true, go: (n) => n.navigate("Approvals") },
     { key: "reports", label: "Reports", sub: "KPIs at a glance", icon: "stats-chart-outline", color: t.violet, module: "reports", manager: true, go: (n) => n.navigate("Reports") },
+    { key: "audit", label: "Night Audit", sub: "Close history · Excel & C-Form", icon: "moon-outline", color: t.teal, module: "finance", manager: true, go: (n) => n.navigate("NightAudit") },
+    { key: "expenses", label: "Expenses", sub: "Petty cash & spend", icon: "cash-outline", color: t.green, module: "finance", manager: true, go: (n) => n.navigate("Expenses") },
+    { key: "activity", label: "Activity Log", sub: "Who did what", icon: "receipt-outline", color: t.muted, module: "reports", manager: true, go: (n) => n.navigate("ActivityLog") },
   ];
   const mods = allMods.filter((m) => on(m.module) && (!m.manager || isManager));
 

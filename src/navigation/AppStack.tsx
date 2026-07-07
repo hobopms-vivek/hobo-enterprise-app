@@ -28,6 +28,11 @@ import { SettingsScreen } from "@/screens/SettingsScreen";
 import { GuestConversationScreen } from "@/screens/GuestConversationScreen";
 import { AssignCleaningScreen } from "@/screens/AssignCleaningScreen";
 import { ManagerReportsScreen } from "@/screens/ManagerReportsScreen";
+import { NightAuditScreen } from "@/screens/NightAuditScreen";
+import { ReviewsScreen } from "@/screens/ReviewsScreen";
+import { LeadsScreen } from "@/screens/LeadsScreen";
+import { ActivityLogScreen } from "@/screens/ActivityLogScreen";
+import { ExpensesScreen } from "@/screens/ExpensesScreen";
 import { GlobalSearchScreen } from "@/screens/GlobalSearchScreen";
 import { BookingCalendarScreen } from "@/screens/BookingCalendarScreen";
 import { LinenScreen } from "@/screens/LinenScreen";
@@ -69,6 +74,11 @@ export function AppStack() {
       <Stack.Screen name="GuestConversation" component={GuestConversationScreen} options={{ headerShown: false }} />
       <Stack.Screen name="AssignCleaning" component={AssignCleaningScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Reports" component={ManagerReportsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="NightAudit" component={NightAuditScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Reviews" component={ReviewsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Leads" component={LeadsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="ActivityLog" component={ActivityLogScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Expenses" component={ExpensesScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Search" component={GlobalSearchScreen} options={{ headerShown: false }} />
       <Stack.Screen name="BookingCalendar" component={BookingCalendarScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Linen" component={LinenScreen} options={{ headerShown: false }} />

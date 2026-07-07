@@ -9,11 +9,33 @@ export type HkRoom = {
   guestName?: string | null;
   backToBack?: boolean;      // ⚡ same-day turnover
   dueOut?: boolean;
+  dayUse?: boolean;
   housekeepingStatus: string; // CLEAN | DIRTY | CLEANING | INSPECTED | OUT_OF_SERVICE
   dnd?: boolean;
-  roomType: { name: string; shortCode: string } | null;
+  roomType: { id?: string; name: string; shortCode: string } | null;
   floor: { name: string; number: number } | null;
 };
+
+// ─── Floor plan (by room-type) — the SAME shape the web front-desk/housekeeping board uses ───
+// One computed displayStatus per room (8 states): occupied | confirmed | out_of_order |
+// out_of_service | dirty_vacant | cleaning | inspected | vacant_clean.
+export type HkTypeRoom = {
+  id: string;
+  roomNumber: string;
+  floorId?: string | null;
+  status: string;            // the display status (drives the cell colour)
+  displayStatus?: string;
+  occupied?: boolean;
+  blocked?: boolean;
+  confirmed?: boolean;
+  dueOut?: boolean;
+  dayUse?: boolean;
+  backToBack?: boolean;
+  roomTypeId: string;
+  roomTypeName: string;
+};
+export type HkByType = { typeId: string; typeName: string; total: number; occupied: number; blocked: number; reserved: number; available: number; rooms: HkTypeRoom[] };
+export type HkSummary = Record<string, number>;
 
 /** Booking-authoritative room status (falls back to raw status). */
 export const roomOcc = (r: HkRoom): string => r.displayStatus ?? r.status;
@@ -24,9 +46,10 @@ export const isHardBlocked = (r: { status: string; displayStatus?: string }): bo
 /** Housekeeping room state-machine actions (reuses the web PATCH route). */
 export type HkAction = "start_cleaning" | "mark_done" | "approve" | "reject" | "restore" | "set_dnd" | "clear_dnd" | "out_of_service";
 
-/** Housekeeping board — rooms with operational + clean/dirty status. */
-export async function getHousekeeping(hotelId: string): Promise<{ rooms: HkRoom[]; summary?: Record<string, number> }> {
-  return apiFetch<{ rooms: HkRoom[]; summary?: Record<string, number> }>(`/hotels/${hotelId}/housekeeping`);
+/** Housekeeping board — rooms + per-type floor plan (byType) + summary counts. Optional day. */
+export async function getHousekeeping(hotelId: string, date?: string): Promise<{ rooms: HkRoom[]; summary?: HkSummary; byType?: HkByType[] }> {
+  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  return apiFetch<{ rooms: HkRoom[]; summary?: HkSummary; byType?: HkByType[] }>(`/hotels/${hotelId}/housekeeping${qs}`);
 }
 
 /** Drive the room state machine (start_cleaning → mark_done → approve/reject, DND, out-of-service, restore). */

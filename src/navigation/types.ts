@@ -28,6 +28,11 @@ export type AppStackParamList = {
   GuestConversation: { wa: string; name: string };
   AssignCleaning: { roomId?: string; roomNumber?: string } | undefined;
   Reports: undefined;
+  NightAudit: undefined;
+  Reviews: undefined;
+  Leads: undefined;
+  ActivityLog: undefined;
+  Expenses: undefined;
   Search: undefined;
   BookingCalendar: undefined;
   Linen: undefined;

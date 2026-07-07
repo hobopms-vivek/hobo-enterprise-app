@@ -6,7 +6,7 @@ import { useNavigation, useRoute, type RouteProp } from "@react-navigation/nativ
 import { createHkTask, getHousekeeping, listHkTaskTypes, type HkRoom, type HkTaskType } from "@/api/housekeeping";
 import { listMembers, type Member } from "@/api/ops";
 import { useAuthStore } from "@/store/useAuthStore";
-import { Avatar, Button, Card, Screen, ScreenHeader, Sheet } from "@/components/kit";
+import { Avatar, Button, Card, EmptyState, Screen, ScreenHeader, Sheet } from "@/components/kit";
 import { radius, space, tint, type as typo, useTheme } from "@/theme";
 import type { AppNav, AppStackParamList } from "@/navigation/types";
 
@@ -17,6 +17,7 @@ export function AssignCleaningScreen() {
   const nav = useNavigation<AppNav>();
   const { params } = useRoute<RouteProp<AppStackParamList, "AssignCleaning">>();
   const hotelId = useAuthStore((s) => s.activeHotelId)!;
+  const canTask = useAuthStore((s) => s.hotels.find((h) => h.id === hotelId))?.permissions.includes("housekeeping.task.create") ?? false;
 
   const [rooms, setRooms] = useState<HkRoom[]>([]);
   const [types, setTypes] = useState<HkTaskType[]>([]);
@@ -50,6 +51,15 @@ export function AssignCleaningScreen() {
       <Text style={{ color: active ? "#fff" : t.muted, fontSize: 12.5, fontWeight: "600", textTransform: "capitalize" }}>{label}</Text>
     </Pressable>
   );
+
+  if (!canTask) {
+    return (
+      <Screen>
+        <ScreenHeader title="Assign cleaning" onBack={() => nav.goBack()} />
+        <EmptyState icon="lock-closed-outline" title="No access" hint="You need the housekeeping task-create permission to assign cleaning." />
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
