@@ -5,6 +5,7 @@ import { useNavigation, useRoute, type RouteProp } from "@react-navigation/nativ
 
 import { actOnTicket, getTicket, type TicketDetail } from "@/api/tickets";
 import { captureAndUpload } from "@/services/photo";
+import { fixMediaUrl } from "@/api/uploads";
 import { useAuthStore } from "@/store/useAuthStore";
 import { FinishTaskSheet } from "@/components/FinishTaskSheet";
 import { ReassignSheet } from "@/components/ReassignSheet";
@@ -113,7 +114,7 @@ export function TicketDetailScreen() {
           </View>
           {photos.length ? (
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-              {photos.map((url, i) => <Image key={`${url}-${i}`} source={{ uri: url }} style={{ width: 88, height: 88, borderRadius: radius.md }} />)}
+              {photos.map((url, i) => <Image key={`${url}-${i}`} source={{ uri: fixMediaUrl(url) }} style={{ width: 88, height: 88, borderRadius: radius.md }} />)}
             </View>
           ) : <Text style={[typo.caption, { color: t.faint }]}>No photos yet.</Text>}
         </Card>
