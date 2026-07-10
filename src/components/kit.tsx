@@ -153,7 +153,7 @@ export function StatTile({ label, value, icon, accent, onPress }: { label: strin
         </View>
         {onPress ? <Ionicons name="chevron-forward" size={14} color={t.faint} /> : null}
       </View>
-      <Text style={[{ fontSize: 20, fontWeight: "800", color: t.text }, tabular]} numberOfLines={1}>{value}</Text>
+      <Text style={[{ fontSize: 20, fontWeight: "800", color: t.text }, tabular]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{value}</Text>
       <Text style={[typo.caption, { color: t.muted }]} numberOfLines={2}>{label}</Text>
     </View>
   );

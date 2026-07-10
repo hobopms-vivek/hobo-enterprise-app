@@ -1,5 +1,5 @@
 import React, { useCallback, useLayoutEffect, useState } from "react";
-import { FlatList, RefreshControl, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, RefreshControl, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
@@ -17,33 +17,31 @@ export function ActivityLogScreen() {
   const t = useTheme();
   const nav = useNavigation<AppNav>();
   const hotelId = useAuthStore((s) => s.activeHotelId)!;
-  const hotel = useAuthStore((s) => s.hotels.find((h) => h.id === hotelId));
-  const canRead = !!hotel && hotel.enabledModules.includes("reports") && hotel.permissions.includes("reports.audit_log.read");
 
   const [items, setItems] = useState<AuditLog[] | null>(null);
   const [summary, setSummary] = useState<AuditSummary | null>(null);
   const [err, setErr] = useState<{ title: string; hint: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
   const load = useCallback(async () => {
-    try { setErr(null); const r = await listAuditLogs(hotelId, { limit: 100 }); setItems(r.items); setSummary(r.summary ?? null); }
+    try { setErr(null); const r = await listAuditLogs(hotelId, { limit: 50 }); setItems(r.items); setSummary(r.summary ?? null); setNextCursor(r.nextCursor); }
     catch (e) {
       if (e instanceof ApiError && e.status === 403) setErr({ title: "No access", hint: e.message || "You can't view the activity log." });
       else setErr({ title: "Couldn't load", hint: e instanceof Error ? e.message : "Pull to refresh." });
-      setItems([]);
+      setItems([]); setNextCursor(null);
     }
   }, [hotelId]);
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try { const r = await listAuditLogs(hotelId, { limit: 50, cursor: nextCursor }); setItems((xs) => [...(xs ?? []), ...r.items]); setNextCursor(r.nextCursor); }
+    catch { /* keep what we have */ }
+    finally { setLoadingMore(false); }
+  }, [hotelId, nextCursor, loadingMore]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
-
-  if (!canRead) {
-    return (
-      <Screen>
-        <ScreenHeader title="Activity log" onBack={() => nav.goBack()} />
-        <EmptyState icon="lock-closed-outline" title="No access" hint="The Reports module + audit-log read permission are required." />
-      </Screen>
-    );
-  }
 
   const sevColor = (s?: string | null) => (s === "CRITICAL" ? t.red : s === "WARNING" ? t.amber : t.muted);
 
@@ -69,6 +67,9 @@ export function ActivityLogScreen() {
           keyExtractor={(a) => a.id}
           contentContainerStyle={{ padding: space.base, paddingTop: 4, gap: 10, paddingBottom: 28 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <View style={{ paddingVertical: 18 }}><ActivityIndicator color={t.primary} /></View> : null}
           ListEmptyComponent={<EmptyState icon={err ? "lock-closed-outline" : "receipt-outline"} title={err?.title ?? "No activity"} hint={err?.hint ?? "Nothing logged yet."} />}
           renderItem={({ item: a }) => {
             const failed = a.outcome === "FAILURE";

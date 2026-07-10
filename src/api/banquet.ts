@@ -49,10 +49,15 @@ export type BanquetEventDetail = {
   payments?: BanquetPayment[];
 };
 
-/** GET /banquet/events — event list. Throws ApiError (e.g. 403 module/permission)
- * so the screen can show WHY it's empty instead of a blank "no events". */
-export async function listBanquetEvents(hotelId: string): Promise<BanquetEvent[]> {
-  const r = await apiFetch<{ items?: BanquetEvent[] }>(`/hotels/${hotelId}/banquet/events`);
+/** GET /banquet/events — event list, filterable by status like the web (`?status=` or `?deleted=1`
+ *  for the Restore view). Throws ApiError (e.g. 403 module/permission) so the screen can show WHY
+ *  it's empty instead of a blank "no events". */
+export async function listBanquetEvents(hotelId: string, opts?: { status?: string; deleted?: boolean }): Promise<BanquetEvent[]> {
+  const qs = new URLSearchParams();
+  if (opts?.deleted) qs.set("deleted", "1");
+  else if (opts?.status) qs.set("status", opts.status);
+  const q = qs.toString();
+  const r = await apiFetch<{ items?: BanquetEvent[] }>(`/hotels/${hotelId}/banquet/events${q ? `?${q}` : ""}`);
   return r.items ?? [];
 }
 

@@ -26,6 +26,8 @@ export type BookingItem = {
   folioBalance?: number;
   extrasTotal?: number;
   paymentEditedAt?: string | null;
+  createdAt?: string;
+  createdByName?: string | null;
   guest?: { fullName: string; title?: string | null; phone?: string | null; email?: string | null } | null;
   roomType?: { name: string; shortCode?: string } | null;
   room?: { roomNumber: string } | null;
@@ -33,6 +35,44 @@ export type BookingItem = {
   bookingSource?: { name: string } | null;
   company?: { name: string } | null;
 };
+
+// ─── Backend-driven reservations table (server pagination / sort / search / filter) ───
+// Reuses the web DataTable contract: GET /bookings?table=1&scope=single&preset=&page=&
+// pageSize=&sort=id:dir&q=&filters=[{id,op,value}]. Search (`q`) spans the WHOLE dataset
+// (all searchable columns) server-side; sort defaults to createdAt desc (config default).
+export type BookingSort = { id: string; dir: "asc" | "desc" };
+export type BookingFilter = { id: string; op: string; value: unknown };
+export type BookingsPage = { rows: BookingItem[]; total: number; page: number; pageSize: number };
+export type ListBookingsParams = {
+  page?: number; pageSize?: number; q?: string;
+  sort?: BookingSort[]; filters?: BookingFilter[];
+  preset?: string; scope?: "single" | "all";
+};
+
+export async function listBookingsTable(hotelId: string, p: ListBookingsParams): Promise<BookingsPage> {
+  const qs = new URLSearchParams({ table: "1", scope: p.scope ?? "single", preset: p.preset ?? "all" });
+  qs.set("page", String(p.page ?? 1));
+  qs.set("pageSize", String(p.pageSize ?? 25));
+  if (p.q?.trim()) qs.set("q", p.q.trim());
+  if (p.sort?.length) qs.set("sort", p.sort.map((s) => `${s.id}:${s.dir}`).join(","));
+  if (p.filters?.length) qs.set("filters", JSON.stringify(p.filters));
+  return apiFetch<BookingsPage>(`/hotels/${hotelId}/bookings?${qs.toString()}`);
+}
+
+// Live counts for the status chips (single bookings; group members excluded).
+export type BookingTabCounts = { all: number; confirmed: number; checkedIn: number; checkedOut: number; cancelled: number; noShow: number; partial: number; selfCheckin: number; groups: number };
+export async function getBookingTabCounts(hotelId: string): Promise<BookingTabCounts> {
+  return apiFetch<BookingTabCounts>(`/hotels/${hotelId}/bookings/tab-counts`);
+}
+
+// Cascading facet options for the filter sidebar: { facets: { colId: [{ value, label, count }] } }.
+export type Facet = { value: string; label: string; count: number };
+export async function getBookingFacets(hotelId: string, only: string[], preset?: string, filters?: BookingFilter[]): Promise<Record<string, Facet[]>> {
+  const qs = new URLSearchParams({ scope: "single", preset: preset ?? "all", facets: only.join(",") });
+  if (filters?.length) qs.set("filters", JSON.stringify(filters));
+  const r = await apiFetch<{ facets?: Record<string, Facet[]> }>(`/hotels/${hotelId}/bookings/facets?${qs.toString()}`).catch(() => ({ facets: {} }));
+  return r.facets ?? {};
+}
 
 // ─── Multi-guest party (BookingGuest rows) ───
 export type BookingGuest = {

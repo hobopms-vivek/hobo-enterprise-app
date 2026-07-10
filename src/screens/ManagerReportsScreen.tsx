@@ -1,28 +1,28 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { RefreshControl, ScrollView, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 
 import { getDashboard, type DashAnalytics } from "@/api/analytics";
 import { useAuthStore } from "@/store/useAuthStore";
 import { KpiCard, Screen, ScreenHeader, SectionHeader, Skeleton } from "@/components/kit";
+import { money, moneyShort as short, pct } from "@/lib/format";
+import { RANGES, rangeToWindow, type RangeKey } from "@/lib/range";
 import { radius, space, tabular, tint, type as typo, useTheme } from "@/theme";
 import type { AppNav } from "@/navigation/types";
-
-const money = (n: number) => `₹${Math.round(n || 0).toLocaleString("en-IN")}`;
-const short = (n: number) => (n >= 1e7 ? `₹${(n / 1e7).toFixed(1)}Cr` : n >= 1e5 ? `₹${(n / 1e5).toFixed(1)}L` : n >= 1e3 ? `₹${(n / 1e3).toFixed(1)}K` : money(n));
-const pct = (n: number) => `${Math.round(n || 0)}%`;
 
 export function ManagerReportsScreen() {
   const t = useTheme();
   const nav = useNavigation<AppNav>();
   const hotelId = useAuthStore((s) => s.activeHotelId)!;
   const [data, setData] = useState<DashAnalytics | null>(null);
+  const [range, setRange] = useState<RangeKey>("30d");
   const [refreshing, setRefreshing] = useState(false);
 
   useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
   const load = useCallback(async () => {
-    try { setData(await getDashboard(hotelId)); } catch { setData(null); }
-  }, [hotelId]);
+    const win = range === "30d" ? undefined : rangeToWindow(range, new Date());
+    try { setData(await getDashboard(hotelId, win)); } catch { setData(null); }
+  }, [hotelId, range]);
   useEffect(() => { void load(); }, [load]);
 
   const k = data?.kpis;
@@ -35,6 +35,16 @@ export function ManagerReportsScreen() {
         contentContainerStyle={{ padding: space.base, gap: 18, paddingBottom: 32 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
       >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginHorizontal: -space.base, marginTop: -6 }} contentContainerStyle={{ gap: 8, paddingHorizontal: space.base }}>
+          {RANGES.map((r) => {
+            const active = range === r.key;
+            return (
+              <Pressable key={r.key} onPress={() => setRange(r.key)} style={{ backgroundColor: active ? t.primary : t.surface, borderWidth: 1, borderColor: active ? t.primary : t.border, borderRadius: radius.pill, paddingHorizontal: 13, paddingVertical: 6 }}>
+                <Text style={{ fontSize: 12.5, fontWeight: "600", color: active ? "#fff" : t.muted }}>{r.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
         {!k ? (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} height={110} width="47%" radius={radius.lg} />)}</View>
         ) : (

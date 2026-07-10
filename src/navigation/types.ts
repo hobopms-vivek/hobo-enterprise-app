@@ -29,6 +29,7 @@ export type AppStackParamList = {
   AssignCleaning: { roomId?: string; roomNumber?: string } | undefined;
   Reports: undefined;
   NightAudit: undefined;
+  NightAuditReport: { auditId: string; businessDate?: string };
   Reviews: undefined;
   Leads: undefined;
   ActivityLog: undefined;

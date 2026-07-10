@@ -29,6 +29,7 @@ import { GuestConversationScreen } from "@/screens/GuestConversationScreen";
 import { AssignCleaningScreen } from "@/screens/AssignCleaningScreen";
 import { ManagerReportsScreen } from "@/screens/ManagerReportsScreen";
 import { NightAuditScreen } from "@/screens/NightAuditScreen";
+import { NightAuditReportScreen } from "@/screens/NightAuditReportScreen";
 import { ReviewsScreen } from "@/screens/ReviewsScreen";
 import { LeadsScreen } from "@/screens/LeadsScreen";
 import { ActivityLogScreen } from "@/screens/ActivityLogScreen";
@@ -75,6 +76,7 @@ export function AppStack() {
       <Stack.Screen name="AssignCleaning" component={AssignCleaningScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Reports" component={ManagerReportsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="NightAudit" component={NightAuditScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="NightAuditReport" component={NightAuditReportScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Reviews" component={ReviewsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Leads" component={LeadsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ActivityLog" component={ActivityLogScreen} options={{ headerShown: false }} />

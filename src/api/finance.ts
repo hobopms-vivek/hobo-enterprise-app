@@ -69,8 +69,17 @@ export async function listNightAudits(hotelId: string): Promise<{ items: NightAu
   return { items: r.items ?? [], preview: (r as { preview?: unknown }).preview };
 }
 
-export type NightAuditReport = { report?: Record<string, unknown>; view?: unknown } & Record<string, unknown>;
-/** GET /night-audit/:id/report — render-ready JSON preview of one close. */
+// Render-ready report layout — the SAME `view` the web night-audit modal + Excel builder use.
+// Cells are PRE-FORMATTED server-side (money/percent already strings), so the app renders them
+// verbatim — no client recomputation, so the numbers can never diverge from the web.
+export type ReportCell = string | number;
+export type ReportRow = { cells: ReportCell[]; bold?: boolean; merge?: [number, number] };
+export type ReportColumn = { id: string; header: string; type: string; align: "left" | "right" | "center"; width?: number };
+export type ReportSection = { id: string; title: string; kind: "kv" | "table"; theme?: { headerColor?: string; totalRowColor?: string }; header?: string[] | null; columns: ReportColumn[]; rows: ReportRow[] };
+export type ReportView = { sections: ReportSection[] };
+export type NightAuditReport = { view?: ReportView; fileDay?: string; businessDate?: string } & Record<string, unknown>;
+
+/** GET /night-audit/:id/report — render-ready JSON preview of one close (top-level fields + `view`). */
 export async function getNightAuditReport(hotelId: string, auditId: string): Promise<NightAuditReport> {
   return apiFetch<NightAuditReport>(`/hotels/${hotelId}/night-audit/${auditId}/report`);
 }

@@ -17,9 +17,13 @@ export type AuditLog = {
 };
 export type AuditSummary = { failed: number; critical: number; actors: number };
 
-export async function listAuditLogs(hotelId: string, opts?: { limit?: number }): Promise<{ items: AuditLog[]; total?: number; summary?: AuditSummary }> {
-  const qs = opts?.limit ? `?limit=${opts.limit}` : "?limit=100";
-  return apiFetch<{ items: AuditLog[]; total?: number; summary?: AuditSummary; nextCursor?: string | null }>(`/hotels/${hotelId}/audit-logs${qs}`);
+/** GET /audit-logs — CURSOR paginated: `?limit=N&cursor=<lastId>` → { items, nextCursor, total, summary }.
+ *  total + summary are only returned on the first page (no cursor). */
+export async function listAuditLogs(hotelId: string, opts?: { limit?: number; cursor?: string }): Promise<{ items: AuditLog[]; total?: number; summary?: AuditSummary; nextCursor: string | null }> {
+  const qs = new URLSearchParams({ limit: String(opts?.limit ?? 50) });
+  if (opts?.cursor) qs.set("cursor", opts.cursor);
+  const r = await apiFetch<{ items?: AuditLog[]; total?: number; summary?: AuditSummary; nextCursor?: string | null }>(`/hotels/${hotelId}/audit-logs?${qs.toString()}`);
+  return { items: r.items ?? [], total: r.total, summary: r.summary, nextCursor: r.nextCursor ?? null };
 }
 
 // ─── Expenses (finance module + finance.expense.read) ───

@@ -1,17 +1,22 @@
 import React, { useState } from "react";
-import { Alert, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
-import { isHardBlocked, roomAction, roomOcc, type HkAction, type HkRoom } from "@/api/housekeeping";
+import { isHardBlocked, isOccupied, roomOcc, roomAction, type HkAction, type HkRoom } from "@/api/housekeeping";
+import type { BookingItem } from "@/api/bookings";
 import { Button, Sheet, StatusBadge } from "@/components/kit";
-import { hkStatusColor, roomStatusColor, tabular, type as typo, useTheme } from "@/theme";
+import { hkStatusColor, roomDisplayColor, roomDisplayLabel, tint, tabular, type as typo, useTheme } from "@/theme";
 
 const nice = (s: string) => s.replace(/_/g, " ").toLowerCase();
 
 /** Room state-machine sheet: start/clean/inspect/approve + DND + out-of-service.
  * `canRoom` = holds housekeeping.room_status.update (base writes). Approve/reject/
- * out-of-service/restore additionally require isManager (level ≤ 3) — mirrors web. */
-export function HousekeepingRoomSheet({ visible, onClose, hotelId, room, isManager, canRoom, onDone }: {
-  visible: boolean; onClose: () => void; hotelId: string; room: HkRoom | null; isManager: boolean; canRoom: boolean; onDone: () => void;
+ * out-of-service/restore additionally require isManager (level ≤ 3) — mirrors web.
+ * `booking` (when resolved) lets the guest chip deep-link to the full BookingDetail. */
+export function HousekeepingRoomSheet({ visible, onClose, hotelId, room, booking, onOpenBooking, isManager, canRoom, onDone }: {
+  visible: boolean; onClose: () => void; hotelId: string; room: HkRoom | null;
+  booking?: BookingItem | null; onOpenBooking?: (b: BookingItem) => void;
+  isManager: boolean; canRoom: boolean; onDone: () => void;
 }) {
   const t = useTheme();
   const [busy, setBusy] = useState(false);
@@ -19,8 +24,8 @@ export function HousekeepingRoomSheet({ visible, onClose, hotelId, room, isManag
   const canManage = canRoom && isManager;
 
   const hk = room.housekeepingStatus;
-  const occ = roomOcc(room);
-  const occupied = occ === "OCCUPIED";
+  const occ = roomOcc(room);            // booking-authoritative displayStatus (lowercase)
+  const occupied = isOccupied(room);    // a guest is physically in the room
   const hardBlocked = isHardBlocked(room);
   const outOfService = hk === "OUT_OF_SERVICE" || hardBlocked;
 
@@ -40,9 +45,29 @@ export function HousekeepingRoomSheet({ visible, onClose, hotelId, room, isManag
         </View>
         <View style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
           <StatusBadge label={nice(hk)} color={hkStatusColor[hk] ?? t.muted} solid />
-          <StatusBadge label={nice(occ)} color={roomStatusColor[occ] ?? t.muted} />
+          <StatusBadge label={roomDisplayLabel[occ] ?? nice(occ)} color={roomDisplayColor[occ] ?? t.muted} />
         </View>
       </View>
+
+      {/* Who's staying — tap to open the full booking (when we resolved one for this room). */}
+      {room.guestName ? (
+        <Pressable
+          onPress={booking && onOpenBooking ? () => onOpenBooking(booking) : undefined}
+          style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: tint(t.violet, "14"), borderRadius: 12, padding: 12, marginBottom: 12 }, pressed && booking ? { opacity: 0.7 } : null]}
+        >
+          <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: tint(t.violet, "26"), alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="person" size={17} color={t.violet} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[typo.bodyStrong, { color: t.text }]} numberOfLines={1}>{room.guestName}</Text>
+            <Text style={[typo.caption, { color: t.muted }]} numberOfLines={1}>
+              {occupied ? "In-house" : "Guest"}{room.dueOut ? " · due out today" : ""}{room.dayUse ? " · day-use" : ""}
+              {booking?.code ? ` · ${booking.code}` : ""}{booking ? " · tap for details" : ""}
+            </Text>
+          </View>
+          {booking && onOpenBooking ? <Ionicons name="chevron-forward" size={18} color={t.violet} /> : null}
+        </Pressable>
+      ) : null}
 
       <View style={{ gap: 10, paddingBottom: 8 }}>
         {hardBlocked ? <Text style={[typo.caption, { color: t.red, fontWeight: "700", paddingVertical: 4 }]}>This room is {nice(occ)} — not sellable.</Text> : null}

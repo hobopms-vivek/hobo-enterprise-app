@@ -36,7 +36,7 @@ export function HeaderIcons({ light, onSearch }: { light?: boolean; onSearch?: (
 
   useFocusEffect(useCallback(() => {
     let alive = true;
-    const load = () => { if (activeHotelId) listNotifications(activeHotelId, true).then((r) => alive && setUnread(r.unread ?? 0)).catch(() => {}); };
+    const load = () => { if (activeHotelId) listNotifications(activeHotelId, { unreadOnly: true, take: 1 }).then((r) => alive && setUnread(r.unread ?? 0)).catch(() => {}); };
     load();
     const id = setInterval(load, 30000);
     return () => { alive = false; clearInterval(id); };
