@@ -62,6 +62,7 @@ export function HomeScreen() {
   const [fd, setFd] = useState<FrontDeskOverview | null>(null);
   const [hkSummary, setHkSummary] = useState<HkSummary | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [activeTickets, setActiveTickets] = useState<Ticket[] | null>(null); // ALL open tickets (managers) → card count == drill-down
   const [onShift, setOnShift] = useState(false);
   const [shiftUntil, setShiftUntil] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -74,13 +75,16 @@ export function HomeScreen() {
     if (!activeHotelId) return;
     // KPI window follows the Performance range selector (default 30 days = web default).
     const win = range === "30d" ? undefined : rangeToWindow(range, new Date());
-    const [d, tk, p, ov] = await Promise.all([
+    const [d, tk, p, ov, act] = await Promise.all([
       getDashboard(activeHotelId, win).catch(() => null),
       listTickets(activeHotelId, { mine: true }).catch(() => [] as Ticket[]),
       getPresence(activeHotelId).catch(() => ({ onShift: false, onShiftUntil: null })),
       canFd ? getFrontDeskOverview(activeHotelId).catch(() => null) : Promise.resolve(null),
+      // ALL open tickets (uncapped) so the "Open tickets" card count matches its drill-down (the
+      // dashboard payload caps its active list at 15 while activeCount stays full).
+      isManager ? listTickets(activeHotelId, { status: "OPEN,ASSIGNED,IN_PROGRESS,ESCALATED" }).catch(() => null) : Promise.resolve(null),
     ]);
-    setData(d); setTickets(tk); setOnShift(p.onShift); setShiftUntil(p.onShiftUntil); setFd(ov);
+    setData(d); setTickets(tk); setOnShift(p.onShift); setShiftUntil(p.onShiftUntil); setFd(ov); setActiveTickets(act);
     // Housekeeping-department staff get a live rooms summary on their home.
     if (deptKey === "housekeeping") getHousekeeping(activeHotelId).then((r) => setHkSummary(r.summary ?? null)).catch(() => setHkSummary(null));
     else setHkSummary(null);
@@ -110,20 +114,27 @@ export function HomeScreen() {
   }
 
   const ops = data?.operations;
-  // Dashboard operations MIRROR THE WEB DASHBOARD exactly: same engine (computeOperations)
-  // → raw balance (totalAmount − amountPaid), same 12-row cap, same counts, and the same raw
-  // `payment.totalOutstanding` for "To collect". (Folio-accurate + uncapped lives on the Front
-  // Desk screen, which mirrors the web front-desk.) Day-use isn't on the web dashboard; we add
-  // it as an ADDITIVE card sourced from the front-desk overview when the user can see it.
+  // Operational cards + drill-downs use the UNCAPPED front-desk overview (`fd`) so the number on a
+  // card ALWAYS equals the rows shown when you tap it. The dashboard endpoint hard-caps each list
+  // at 12 rows while its COUNT stays full → that's the "22 on the card, 12 on tap" bug. `fd` is the
+  // same uncapped + folio-accurate source the Front Desk screen / detail page use (so counts == the
+  // list length by construction). Falls back to the capped dashboard ops only when the user can't
+  // see the front-desk overview (no front_desk.booking.read).
   const dayUseRows: OpsRow[] = fd
     ? [...fd.dayUsePending, ...fd.dayUseActive.map((d): OpsRow => ({ id: d.id, code: d.code, guest: d.guest ?? "Guest", room: d.room, roomType: d.minutesLeft != null ? `${d.minutesLeft}m left` : "in-house", balance: 0 }))]
     : [];
-  const opsSrc = ops ? {
-    counts: { arrivals: ops.counts.arrivals, departures: ops.counts.departures, inHouse: ops.counts.inHouse, upcoming: ops.counts.upcoming, dayUse: dayUseRows.length },
-    arrivals: ops.arrivals as OpsRow[], departures: ops.departures as OpsRow[], inHouse: ops.inHouse as OpsRow[], upcoming: ops.upcoming as OpsRow[],
+  const opsSrc = fd ? {
+    counts: { arrivals: fd.arrivalsToday.length, departures: fd.departures.length, inHouse: fd.inHouse.length, upcoming: fd.upcoming.length, dayUse: dayUseRows.length },
+    arrivals: fd.arrivalsToday, departures: fd.departures, inHouse: fd.inHouse, upcoming: fd.upcoming,
     dayUse: dayUseRows,
+    balances: fd.inHouse.filter((r) => r.balance > 0).sort((a, b) => b.balance - a.balance),
+    toCollect: fd.inHouse.reduce((s, r) => s + Math.max(0, r.balance), 0),
+  } : ops ? {
+    counts: { arrivals: ops.counts.arrivals, departures: ops.counts.departures, inHouse: ops.counts.inHouse, upcoming: ops.counts.upcoming, dayUse: 0 },
+    arrivals: ops.arrivals as OpsRow[], departures: ops.departures as OpsRow[], inHouse: ops.inHouse as OpsRow[], upcoming: ops.upcoming as OpsRow[],
+    dayUse: [] as OpsRow[],
     balances: ops.balances as OpsRow[],
-    toCollect: ops.payment.totalOutstanding, // raw — EXACTLY the web dashboard's "Outstanding to collect"
+    toCollect: ops.payment.totalOutstanding,
   } : null;
   const managerial = data?.role?.isManagerial;
   const until = shiftUntil ? new Date(shiftUntil).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : null;
@@ -239,7 +250,7 @@ export function HomeScreen() {
                 <StatTile label="Departures" value={opsSrc.counts.departures} icon="log-out-outline" accent={t.amber} onPress={() => setGuestDrill({ title: "Departures today", rows: opsSrc.departures })} />
                 <StatTile label="Arriving · 7d" value={opsSrc.counts.upcoming} icon="calendar-outline" accent={t.blue} onPress={() => setGuestDrill({ title: "Arriving next 7 days", rows: opsSrc.upcoming })} />
                 {opsSrc.counts.dayUse > 0 ? <StatTile label="Day-use" value={opsSrc.counts.dayUse} icon="hourglass-outline" accent={t.teal} onPress={() => setGuestDrill({ title: "Day-use / hourly", rows: opsSrc.dayUse, balance: false })} /> : null}
-                <StatTile label="Open tickets" value={data?.tickets?.activeCount ?? 0} icon="construct-outline" accent={t.red} onPress={() => setTicketDrill({ title: "Open tickets", rows: data?.tickets?.active ?? [] })} />
+                <StatTile label="Open tickets" value={activeTickets?.length ?? data?.tickets?.activeCount ?? 0} icon="construct-outline" accent={t.red} onPress={() => setTicketDrill({ title: "Open tickets", rows: activeTickets ?? data?.tickets?.active ?? [] })} />
                 {managerial ? <StatTile label="To collect" value={moneyShort(opsSrc.toCollect)} icon="cash-outline" accent={t.teal} onPress={() => setGuestDrill({ title: "Balances to collect", rows: opsSrc.balances, balance: true, totalDue: opsSrc.toCollect })} /> : <View style={{ flex: 1, minWidth: 100 }} />}
               </View>
             </View>
