@@ -47,11 +47,11 @@ jobs:
           if [ "${{ github.ref_name }}" = "main" ]; then
             echo "channel=production" >> "$GITHUB_OUTPUT"
             echo "variant=production" >> "$GITHUB_OUTPUT"
-            echo "apiurl=https://REPLACE-WITH-YOUR-PROD-DOMAIN" >> "$GITHUB_OUTPUT"
+            echo "apiurl=https://hoboenterprise.in" >> "$GITHUB_OUTPUT"
           else
             echo "channel=staging" >> "$GITHUB_OUTPUT"
             echo "variant=staging" >> "$GITHUB_OUTPUT"
-            echo "apiurl=https://hobo-enterprise-production.up.railway.app" >> "$GITHUB_OUTPUT"
+            echo "apiurl=https://staging.hoboenterprise.in" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Publish update
