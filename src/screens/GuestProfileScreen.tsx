@@ -5,6 +5,7 @@ import { useNavigation, useRoute, type RouteProp } from "@react-navigation/nativ
 
 import { addGuestDocument, getGuest, updateGuest, type GuestDetail, type GuestStay } from "@/api/guests";
 import { captureAndUpload } from "@/services/photo";
+import { fixMediaUrl } from "@/api/uploads";
 import { useAuthStore } from "@/store/useAuthStore";
 import { Avatar, Button, Card, IconChip, Loader, Screen, ScreenHeader, Sheet, StatusBadge } from "@/components/kit";
 import { radius, space, tabular, tint, type as typo, useTheme } from "@/theme";
@@ -88,7 +89,7 @@ export function GuestProfileScreen() {
           <Text style={[typo.label, { color: t.muted, marginBottom: 10 }]}>ID & documents</Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
             {guest.documentImageUrl ? (
-              <Image source={{ uri: guest.documentImageUrl }} style={{ width: 72, height: 54, borderRadius: radius.sm, backgroundColor: t.surfaceSunken }} />
+              <Image source={{ uri: fixMediaUrl(guest.documentImageUrl) }} style={{ width: 72, height: 54, borderRadius: radius.sm, backgroundColor: t.surfaceSunken }} />
             ) : (
               <View style={{ width: 72, height: 54, borderRadius: radius.sm, backgroundColor: t.surfaceSunken, alignItems: "center", justifyContent: "center" }}><Ionicons name="card-outline" size={22} color={t.faint} /></View>
             )}
@@ -130,7 +131,7 @@ export function GuestProfileScreen() {
 
       {/* ID review + save sheet */}
       <Sheet visible={!!idSheet} onClose={() => setIdSheet(null)} title="Verify ID">
-        {idSheet ? <Image source={{ uri: idSheet.url }} style={{ width: "100%", height: 160, borderRadius: radius.md, backgroundColor: t.surfaceSunken, marginBottom: 14 }} resizeMode="cover" /> : null}
+        {idSheet ? <Image source={{ uri: fixMediaUrl(idSheet.url) }} style={{ width: "100%", height: 160, borderRadius: radius.md, backgroundColor: t.surfaceSunken, marginBottom: 14 }} resizeMode="cover" /> : null}
         <Text style={[typo.label, { color: t.muted, marginBottom: 6 }]}>ID type</Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
           {ID_TYPES.map((x) => {

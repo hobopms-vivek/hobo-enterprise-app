@@ -37,11 +37,18 @@ export type HkTypeRoom = {
 export type HkByType = { typeId: string; typeName: string; total: number; occupied: number; blocked: number; reserved: number; available: number; rooms: HkTypeRoom[] };
 export type HkSummary = Record<string, number>;
 
-/** Booking-authoritative room status (falls back to raw status). */
+/** Booking-authoritative room status (falls back to raw status). displayStatus is
+ *  LOWERCASE (occupied | vacant_clean | out_of_order | …); raw status is UPPERCASE. */
 export const roomOcc = (r: HkRoom): string => r.displayStatus ?? r.status;
-/** True for rooms hard-blocked out of service (can't be cleaned; can be restored). */
-export const isHardBlocked = (r: { status: string; displayStatus?: string }): boolean =>
-  ["OUT_OF_ORDER", "MAINTENANCE", "BLOCKED"].includes(r.displayStatus ?? r.status);
+/** True when the booking-authoritative display status reads "occupied" (a guest is in). */
+export const isOccupied = (r: { status: string; displayStatus?: string }): boolean =>
+  (r.displayStatus ?? r.status).toLowerCase() === "occupied";
+/** True for rooms hard-blocked out of service (maintenance/OOO — can't be cleaned; can be
+ *  restored). Handles BOTH the lowercase displayStatus ("out_of_order") and the raw status. */
+export const isHardBlocked = (r: { status: string; displayStatus?: string }): boolean => {
+  const ds = (r.displayStatus ?? r.status ?? "").toLowerCase();
+  return ds === "out_of_order" || ds === "maintenance" || ds === "blocked";
+};
 
 /** Housekeeping room state-machine actions (reuses the web PATCH route). */
 export type HkAction = "start_cleaning" | "mark_done" | "approve" | "reject" | "restore" | "set_dnd" | "clear_dnd" | "out_of_service";

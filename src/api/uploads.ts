@@ -24,9 +24,23 @@ export async function uploadImage(hotelId: string, uri: string, mime = "image/jp
     body: form,
   });
   if (!res.ok) throw new Error("Upload failed");
-  const j = (await res.json()) as { url: string; path?: string };
-  // Prefer base+path so the photo URL always uses the SAME reachable host the
-  // app is configured with (e.g. the ngrok https domain), not whatever origin
-  // the server computed behind the tunnel.
-  return j.path ? `${API_BASE}${j.path}` : j.url;
+  const j = (await res.json()) as { url?: string; path?: string };
+  const p = j.path ?? j.url;
+  if (!p) throw new Error("Upload failed");
+  // The server returns EITHER an absolute cloud URL (uploadthing: `path` == the CDN https
+  // URL) OR a relative "/uploads/…" path (local dev). Only a RELATIVE path should be
+  // prefixed with the API base — prefixing an already-absolute URL produced a broken
+  // "https://api…https://cdn…" that never loaded (the ID-upload / preview bug).
+  return /^https?:\/\//i.test(p) ? p : `${API_BASE}${p}`;
+}
+
+/**
+ * Sanitise a stored media URL for display. Recovers URLs saved by the old bug (API base
+ * wrongly prepended to an absolute CDN URL) by keeping everything from the LAST "http".
+ * Correct absolute or base-prefixed-relative URLs pass through unchanged.
+ */
+export function fixMediaUrl(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  const i = u.lastIndexOf("http");
+  return i > 0 ? u.slice(i) : u;
 }

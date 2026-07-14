@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { actOnTicket } from "@/api/tickets";
 import { captureAndUpload } from "@/services/photo";
+import { fixMediaUrl } from "@/api/uploads";
 import { Button, IconChip, Sheet, SegmentedTabs } from "@/components/kit";
 import { radius, space, tint, type as typo, useTheme } from "@/theme";
 
@@ -67,7 +68,7 @@ export function FinishTaskSheet({ visible, onClose, hotelId, ticketId, onFinishe
             <Text style={[typo.label, { color: t.muted, marginBottom: 6 }]}>Photos</Text>
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
               {photos.map((url) => (
-                <Image key={url} source={{ uri: url }} style={{ width: 64, height: 64, borderRadius: radius.md }} />
+                <Image key={url} source={{ uri: fixMediaUrl(url) }} style={{ width: 64, height: 64, borderRadius: radius.md }} />
               ))}
               <Pressable onPress={addPhoto} style={{ width: 64, height: 64, borderRadius: radius.md, borderWidth: 1.5, borderStyle: "dashed", borderColor: t.border, alignItems: "center", justifyContent: "center", backgroundColor: tint(t.primary, "0F") }}>
                 <Ionicons name="camera-outline" size={22} color={t.primary} />

@@ -1,5 +1,5 @@
 import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
-import { Pressable, SectionList, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, SectionList, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
@@ -52,11 +52,21 @@ export function NotificationsScreen() {
   const hotelId = useAuthStore((s) => s.activeHotelId)!;
   const [items, setItems] = useState<AppNotification[] | null>(null);
   const [filter, setFilter] = useState("all");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
   const load = useCallback(async () => {
-    try { setItems((await listNotifications(hotelId)).items ?? []); } catch { setItems([]); }
+    try { const r = await listNotifications(hotelId, { take: 30 }); setItems(r.items); setNextCursor(r.nextCursor); }
+    catch { setItems([]); setNextCursor(null); }
   }, [hotelId]);
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try { const r = await listNotifications(hotelId, { take: 30, cursor: nextCursor }); setItems((xs) => [...(xs ?? []), ...r.items]); setNextCursor(r.nextCursor); }
+    catch { /* keep what we have */ }
+    finally { setLoadingMore(false); }
+  }, [hotelId, nextCursor, loadingMore]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   useRealtime(hotelId, (e) => { if (e.type === "notification") void load(); });
 
@@ -117,6 +127,9 @@ export function NotificationsScreen() {
           keyExtractor={(n) => n.id}
           contentContainerStyle={{ paddingHorizontal: space.base, paddingBottom: 24 }}
           stickySectionHeadersEnabled={false}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <View style={{ paddingVertical: 18 }}><ActivityIndicator color={t.primary} /></View> : null}
           ListEmptyComponent={<EmptyState icon="checkmark-done-circle-outline" title="You're all caught up 🎉" hint="New alerts about tasks, rooms and bookings show up here." />}
           renderSectionHeader={({ section }) => <Text style={[typo.overline, { color: t.muted, marginTop: 16, marginBottom: 6 }]}>{section.title}</Text>}
           renderItem={({ item: n }) => {

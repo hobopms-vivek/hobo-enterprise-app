@@ -8,6 +8,7 @@ import { getPresence, setPresence } from "@/api/presence";
 import { getProfile, updateProfile } from "@/api/profile";
 import { useRealtime } from "@/realtime/useRealtime";
 import { pickAndUpload } from "@/services/photo";
+import { fixMediaUrl } from "@/api/uploads";
 import { HotelSwitcherSheet } from "@/components/HotelSwitcherSheet";
 import { Card, IconChip, Screen, ScreenHeader, StatusBadge } from "@/components/kit";
 import { radius, space, tint, type as typo, useTheme } from "@/theme";
@@ -78,7 +79,7 @@ export function ProfileScreen() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
             <Pressable onPress={changeAvatar} style={{ width: 60, height: 60 }}>
               <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: tint(t.primary, "22"), alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                {avatarUrl ? <Image source={{ uri: avatarUrl }} style={{ width: 60, height: 60 }} /> : <Text style={{ color: t.primary, fontSize: 26, fontWeight: "800" }}>{(user?.fullName ?? "?").charAt(0).toUpperCase()}</Text>}
+                {avatarUrl ? <Image source={{ uri: fixMediaUrl(avatarUrl) }} style={{ width: 60, height: 60 }} /> : <Text style={{ color: t.primary, fontSize: 26, fontWeight: "800" }}>{(user?.fullName ?? "?").charAt(0).toUpperCase()}</Text>}
               </View>
               <View style={{ position: "absolute", right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: t.navy, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: t.surface }}>
                 {avatarBusy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={12} color="#fff" />}

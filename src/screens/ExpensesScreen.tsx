@@ -17,8 +17,6 @@ export function ExpensesScreen() {
   const t = useTheme();
   const nav = useNavigation<AppNav>();
   const hotelId = useAuthStore((s) => s.activeHotelId)!;
-  const hotel = useAuthStore((s) => s.hotels.find((h) => h.id === hotelId));
-  const canRead = !!hotel && hotel.enabledModules.includes("finance") && hotel.permissions.includes("finance.expense.read");
 
   const [items, setItems] = useState<Expense[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -36,14 +34,9 @@ export function ExpensesScreen() {
   }, [hotelId]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  if (!canRead) {
-    return (
-      <Screen>
-        <ScreenHeader title="Expenses" onBack={() => nav.goBack()} />
-        <EmptyState icon="lock-closed-outline" title="No access" hint="The Finance module + expense read permission are required." />
-      </Screen>
-    );
-  }
+  // Endpoint-authoritative: don't hard-gate on the literal permission list (a super-admin may
+  // pass `ctx.can()` on the server via role level without the exact perm string in /me/hotels).
+  // We try the fetch and only show "No access" on a real 403.
 
   return (
     <Screen>

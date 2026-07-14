@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
 import { getHousekeeping, roomOcc, type HkByType, type HkRoom, type HkSummary } from "@/api/housekeeping";
+import { listBookings, type BookingItem } from "@/api/bookings";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useRealtime } from "@/realtime/useRealtime";
 import { HousekeepingRoomSheet } from "@/components/HousekeepingRoomSheet";
@@ -35,6 +36,8 @@ export function HousekeepingScreen() {
   const [filter, setFilter] = useState<string>("ALL");
   const [refreshing, setRefreshing] = useState(false);
   const [sel, setSel] = useState<HkRoom | null>(null);
+  // roomId → the guest's live booking, so the room sheet can deep-link to BookingDetail.
+  const [bookingByRoom, setBookingByRoom] = useState<Map<string, BookingItem>>(new Map());
 
   useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
 
@@ -44,6 +47,17 @@ export function HousekeepingScreen() {
       const r = await getHousekeeping(hotelId);
       setRooms(r.rooms ?? []); setByType(r.byType ?? []); setSummary(r.summary ?? null);
     } catch { setRooms([]); setByType([]); setSummary(null); }
+    // Best-effort, non-blocking, permission-gated (empty on 403): map each room to its
+    // current occupant's booking (CHECKED_IN wins; fall back to a same-day CHECKED_OUT).
+    listBookings(hotelId).then((bs) => {
+      const m = new Map<string, BookingItem>();
+      for (const b of bs) {
+        if (!b.roomId) continue;
+        if (b.status === "CHECKED_IN") m.set(b.roomId, b);
+        else if (b.status === "CHECKED_OUT" && !m.has(b.roomId)) m.set(b.roomId, b);
+      }
+      setBookingByRoom(m);
+    }).catch(() => setBookingByRoom(new Map()));
   }, [hotelId]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   useRealtime(hotelId, (e) => { if (e.type === "housekeeping.approval" || e.type === "notification") void load(); });
@@ -67,6 +81,26 @@ export function HousekeepingScreen() {
     ];
     return rows;
   }, [summary]);
+
+  // Floor plan — group the AUTHORITATIVE `rooms` (booking-authoritative displayStatus) by
+  // room-type, EXACTLY like the web board (which renders rooms[].displayStatus for cells and
+  // uses byType only for the per-type avail/occ/resv counts). This is why the tile now matches
+  // the detail sheet AND the web: the byType/grid cells used a different occupancy rule.
+  const planGroups = useMemo(() => {
+    const all = rooms ?? [];
+    const roomsByType = new Map<string, HkRoom[]>();
+    for (const r of all) {
+      const key = r.roomType?.id ?? "none";
+      if (!roomsByType.has(key)) roomsByType.set(key, []);
+      roomsByType.get(key)!.push(r);
+    }
+    for (const list of roomsByType.values()) list.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }));
+    const seen = new Set<string>();
+    const groups: { typeId: string; typeName: string; av?: HkByType; rooms: HkRoom[] }[] = [];
+    for (const b of byType) { seen.add(b.typeId); groups.push({ typeId: b.typeId, typeName: b.typeName, av: b, rooms: roomsByType.get(b.typeId) ?? [] }); }
+    for (const [key, list] of roomsByType) { if (!seen.has(key)) groups.push({ typeId: key, typeName: list[0]?.roomType?.name ?? "Unassigned", rooms: list }); }
+    return groups.filter((g) => g.rooms.length > 0);
+  }, [rooms, byType]);
 
   // List worklist: all rooms, sorted by display-status priority, filterable by status.
   const listRooms = useMemo(() => {
@@ -109,7 +143,7 @@ export function HousekeepingScreen() {
       <ScreenHeader title="Housekeeping" onBack={() => nav.goBack()} right={canTask ? <Pressable onPress={() => nav.navigate("AssignCleaning")} hitSlop={8} style={{ padding: 6 }}><Ionicons name="add" size={26} color={t.primary} /></Pressable> : undefined} />
 
       {/* Summary stat cards (from server) */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 10, padding: space.base, alignItems: "center" }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 10, padding: space.base, alignItems: "center" }}>
         {stats.map((s) => (
           <View key={s.key} style={{ backgroundColor: t.surface, borderWidth: 1, borderColor: t.border, borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 14, minWidth: 96, alignItems: "center", gap: 2 }}>
             <Text style={[{ fontSize: 22, fontWeight: "800", color: roomDisplayColor[s.key] ?? t.text }, tabular]}>{s.value}</Text>
@@ -128,19 +162,20 @@ export function HousekeepingScreen() {
         </View>
       ) : view === "plan" ? (
         <ScrollView
-          contentContainerStyle={{ paddingBottom: 28 }}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 28, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
         >
           <Legend />
-          {byType.length === 0 ? (
+          {planGroups.length === 0 ? (
             <EmptyState icon="bed-outline" title="No rooms" hint="No room types configured." height={220} />
-          ) : byType.map((grp) => (
+          ) : planGroups.map((grp) => (
             <View key={grp.typeId} style={{ paddingHorizontal: space.base, marginBottom: 18 }}>
               <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, gap: 8 }}>
                 <Text style={[typo.title, { color: t.text, flex: 1 }]} numberOfLines={1}>{grp.typeName}</Text>
-                <Text style={[typo.caption, { color: grp.available > 0 ? t.green : t.red, fontWeight: "700" }, tabular]}>{grp.available}/{grp.total} avail</Text>
-                {grp.occupied > 0 ? <Text style={[typo.caption, { color: t.muted }, tabular]}>· {grp.occupied} occ</Text> : null}
-                {grp.reserved > 0 ? <Text style={[typo.caption, { color: t.amber }, tabular]}>· {grp.reserved} resv</Text> : null}
+                {grp.av ? <Text style={[typo.caption, { color: grp.av.available > 0 ? t.green : t.red, fontWeight: "700" }, tabular]}>{grp.av.available}/{grp.av.total} avail</Text> : null}
+                {grp.av && grp.av.occupied > 0 ? <Text style={[typo.caption, { color: t.muted }, tabular]}>· {grp.av.occupied} occ</Text> : null}
+                {grp.av && grp.av.reserved > 0 ? <Text style={[typo.caption, { color: t.amber }, tabular]}>· {grp.av.reserved} resv</Text> : null}
               </View>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                 {grp.rooms.map((r) => <Cell key={r.id} id={r.id} roomNumber={r.roomNumber} status={r.displayStatus ?? r.status} backToBack={r.backToBack} />)}
@@ -150,7 +185,7 @@ export function HousekeepingScreen() {
         </ScrollView>
       ) : (
         <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: space.base, paddingBottom: 8, alignItems: "center" }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: space.base, paddingBottom: 8, alignItems: "center" }}>
             {(["ALL", ...ROOM_DISPLAY_ORDER] as string[]).map((f) => {
               const active = filter === f;
               const label = f === "ALL" ? "All" : roomDisplayLabel[f];
@@ -164,7 +199,8 @@ export function HousekeepingScreen() {
           <FlatList
             data={listRooms}
             keyExtractor={(r) => r.id}
-            contentContainerStyle={{ padding: space.base, paddingTop: 4, gap: 10, paddingBottom: 28 }}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: space.base, paddingTop: 4, gap: 10, paddingBottom: 28, flexGrow: 1 }}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
             ListEmptyComponent={<EmptyState icon="bed-outline" title="No rooms" hint="No rooms match this filter." height={200} />}
             renderItem={({ item: r }) => {
@@ -193,7 +229,17 @@ export function HousekeepingScreen() {
         </>
       )}
 
-      <HousekeepingRoomSheet visible={!!sel} onClose={() => setSel(null)} hotelId={hotelId!} room={sel} isManager={isManager} canRoom={canRoom} onDone={load} />
+      <HousekeepingRoomSheet
+        visible={!!sel}
+        onClose={() => setSel(null)}
+        hotelId={hotelId!}
+        room={sel}
+        booking={sel ? bookingByRoom.get(sel.id) ?? null : null}
+        onOpenBooking={(b) => { setSel(null); nav.navigate("BookingDetail", { booking: b, bookingId: b.id }); }}
+        isManager={isManager}
+        canRoom={canRoom}
+        onDone={load}
+      />
     </Screen>
   );
 }

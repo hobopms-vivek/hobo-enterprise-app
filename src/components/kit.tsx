@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { radius, shadow, space, tabular, tint, type as typo, useTheme, type Theme } from "@/theme";
+import { fixMediaUrl } from "@/api/uploads";
 
 type Ion = keyof typeof Ionicons.glyphMap;
 
@@ -153,7 +154,7 @@ export function StatTile({ label, value, icon, accent, onPress }: { label: strin
         </View>
         {onPress ? <Ionicons name="chevron-forward" size={14} color={t.faint} /> : null}
       </View>
-      <Text style={[{ fontSize: 20, fontWeight: "800", color: t.text }, tabular]} numberOfLines={1}>{value}</Text>
+      <Text style={[{ fontSize: 20, fontWeight: "800", color: t.text }, tabular]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{value}</Text>
       <Text style={[typo.caption, { color: t.muted }]} numberOfLines={2}>{label}</Text>
     </View>
   );
@@ -245,7 +246,7 @@ export function Avatar({ name, uri, size = 40, online }: { name?: string; uri?: 
   return (
     <View>
       <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: tint(t.primary, "22"), alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        {uri ? <Animated.Image source={{ uri }} style={{ width: size, height: size }} /> : <Text style={{ color: t.primary, fontWeight: "800", fontSize: size * 0.4 }}>{initial}</Text>}
+        {uri ? <Animated.Image source={{ uri: fixMediaUrl(uri) }} style={{ width: size, height: size }} /> : <Text style={{ color: t.primary, fontWeight: "800", fontSize: size * 0.4 }}>{initial}</Text>}
       </View>
       {online !== undefined ? (
         <View style={{ position: "absolute", right: -1, bottom: -1, width: size * 0.3, height: size * 0.3, borderRadius: size * 0.15, backgroundColor: online ? t.green : t.faint, borderWidth: 2, borderColor: t.surface }} />

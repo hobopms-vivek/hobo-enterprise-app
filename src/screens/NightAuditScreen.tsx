@@ -18,9 +18,6 @@ export function NightAuditScreen() {
   const t = useTheme();
   const nav = useNavigation<AppNav>();
   const hotelId = useAuthStore((s) => s.activeHotelId)!;
-  const hotel = useAuthStore((s) => s.hotels.find((h) => h.id === hotelId));
-  const canFinance = !!hotel && hotel.enabledModules.includes("finance") &&
-    (hotel.permissions.includes("finance.ledger.read") || hotel.permissions.includes("finance.invoice.read"));
 
   const [items, setItems] = useState<NightAudit[] | null>(null);
   const [err, setErr] = useState<{ title: string; hint: string } | null>(null);
@@ -48,15 +45,7 @@ export function NightAuditScreen() {
     finally { setBusy(null); }
   }
 
-  if (!canFinance) {
-    return (
-      <Screen>
-        <ScreenHeader title="Night audit" onBack={() => nav.goBack()} />
-        <EmptyState icon="lock-closed-outline" title="No access" hint="The Finance module + a ledger/invoice read permission are required to view night-audit reports." />
-      </Screen>
-    );
-  }
-
+  // Endpoint-authoritative access (no hard client gate): the list 403s → "No access" below.
   return (
     <Screen>
       <ScreenHeader title="Night audit" subtitle="Download past closes" onBack={() => nav.goBack()} />
@@ -83,9 +72,12 @@ export function NightAuditScreen() {
                 {a.noShowsProcessed != null ? <Text style={[typo.caption, { color: t.muted }, tabular]}>{a.noShowsProcessed} no-shows</Text> : null}
                 {a.runByName ? <Text style={[typo.caption, { color: t.muted }]} numberOfLines={1}>by {a.runByName}</Text> : null}
               </View>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <Button title="Excel report" icon="download-outline" size="sm" variant="outline" full={false} style={{ flex: 1 }} loading={busy === a.id + "xlsx"} onPress={() => download(a, "xlsx")} />
-                <Button title="C-Form (CSV)" icon="document-text-outline" size="sm" variant="outline" full={false} style={{ flex: 1 }} loading={busy === a.id + "cform"} onPress={() => download(a, "cform")} />
+              <View style={{ gap: 8 }}>
+                <Button title="View report" icon="eye-outline" size="sm" onPress={() => nav.navigate("NightAuditReport", { auditId: a.id, businessDate: a.businessDate })} />
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Button title="Download Excel" icon="download-outline" size="sm" variant="outline" full={false} style={{ flex: 1 }} loading={busy === a.id + "xlsx"} onPress={() => download(a, "xlsx")} />
+                  <Button title="C-Form (CSV)" icon="document-text-outline" size="sm" variant="outline" full={false} style={{ flex: 1 }} loading={busy === a.id + "cform"} onPress={() => download(a, "cform")} />
+                </View>
               </View>
             </Card>
           )}

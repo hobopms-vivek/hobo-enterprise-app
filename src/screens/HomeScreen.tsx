@@ -3,7 +3,8 @@ import { Alert, Pressable, RefreshControl, ScrollView, Switch, Text, View } from
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
-import { getDashboard, type DashAnalytics, type DashGuest } from "@/api/analytics";
+import { getDashboard, type DashAnalytics } from "@/api/analytics";
+import { getFrontDeskOverview, type FrontDeskOverview, type OpsRow } from "@/api/frontdesk";
 import { listTickets, type Ticket } from "@/api/tickets";
 import { getHousekeeping, type HkSummary } from "@/api/housekeeping";
 import { getPresence, setPresence } from "@/api/presence";
@@ -14,15 +15,13 @@ import { GuestListSheet } from "@/components/GuestListSheet";
 import { TicketListSheet } from "@/components/TicketListSheet";
 import { HeaderIcons, HotelPill } from "@/components/AppHeader";
 import { Card, HeroHeader, KpiCard, Screen, SectionHeader, Sheet, StatTile } from "@/components/kit";
+import { money, moneyShort, pct } from "@/lib/format";
+import { RANGES, rangeToWindow, type RangeKey } from "@/lib/range";
 import { radius, space, tabular, tint, type as typo, useTheme } from "@/theme";
 import type { AppNav } from "@/navigation/types";
 
-const money = (n: number) => `₹${Math.round(n || 0).toLocaleString("en-IN")}`;
-const moneyShort = (n: number) => (n >= 1e7 ? `₹${(n / 1e7).toFixed(1)}Cr` : n >= 1e5 ? `₹${(n / 1e5).toFixed(1)}L` : n >= 1e3 ? `₹${(n / 1e3).toFixed(1)}K` : money(n));
-const pct = (n: number) => `${Math.round(n || 0)}%`;
-
 type QA = { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; color: string; go: (n: AppNav) => void; manager?: boolean; module?: string };
-type GuestDrill = { title: string; rows: DashGuest[]; balance?: boolean } | null;
+type GuestDrill = { title: string; rows: OpsRow[]; balance?: boolean; totalDue?: number } | null;
 type TicketRow = { id: string; code: string; subject: string; priority?: string | null; status: string; room?: string | null; category?: string | null };
 type TicketDrill = { title: string; rows: TicketRow[] } | null;
 type KpiDrill = { label: string; value: string; delta: number; days: number } | null;
@@ -55,10 +54,15 @@ export function HomeScreen() {
   const primaryDept = departments.find((d) => DEPT_CFG[d.key] && on(DEPT_CFG[d.key].module)) ?? departments[0];
   const deptKey = primaryDept?.key;
   const deptCfg = deptKey ? DEPT_CFG[deptKey] : undefined;
+  // Front-desk overview = folio-accurate + uncapped operational lists (preferred over the capped/raw dashboard ops).
+  const canFd = !!hotel && hotel.enabledModules.includes("front_desk") && hotel.permissions.includes("front_desk.booking.read");
 
   const [data, setData] = useState<DashAnalytics | null>(null);
+  const [range, setRange] = useState<RangeKey>("30d");
+  const [fd, setFd] = useState<FrontDeskOverview | null>(null);
   const [hkSummary, setHkSummary] = useState<HkSummary | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [activeTickets, setActiveTickets] = useState<Ticket[] | null>(null); // ALL open tickets (managers) → card count == drill-down
   const [onShift, setOnShift] = useState(false);
   const [shiftUntil, setShiftUntil] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,16 +73,22 @@ export function HomeScreen() {
 
   const load = useCallback(async () => {
     if (!activeHotelId) return;
-    const [d, tk, p] = await Promise.all([
-      getDashboard(activeHotelId).catch(() => null),
+    // KPI window follows the Performance range selector (default 30 days = web default).
+    const win = range === "30d" ? undefined : rangeToWindow(range, new Date());
+    const [d, tk, p, ov, act] = await Promise.all([
+      getDashboard(activeHotelId, win).catch(() => null),
       listTickets(activeHotelId, { mine: true }).catch(() => [] as Ticket[]),
       getPresence(activeHotelId).catch(() => ({ onShift: false, onShiftUntil: null })),
+      canFd ? getFrontDeskOverview(activeHotelId).catch(() => null) : Promise.resolve(null),
+      // ALL open tickets (uncapped) so the "Open tickets" card count matches its drill-down (the
+      // dashboard payload caps its active list at 15 while activeCount stays full).
+      isManager ? listTickets(activeHotelId, { status: "OPEN,ASSIGNED,IN_PROGRESS,ESCALATED" }).catch(() => null) : Promise.resolve(null),
     ]);
-    setData(d); setTickets(tk); setOnShift(p.onShift); setShiftUntil(p.onShiftUntil);
+    setData(d); setTickets(tk); setOnShift(p.onShift); setShiftUntil(p.onShiftUntil); setFd(ov); setActiveTickets(act);
     // Housekeeping-department staff get a live rooms summary on their home.
     if (deptKey === "housekeeping") getHousekeeping(activeHotelId).then((r) => setHkSummary(r.summary ?? null)).catch(() => setHkSummary(null));
     else setHkSummary(null);
-  }, [activeHotelId, level, deptKey]);
+  }, [activeHotelId, level, deptKey, canFd, range]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   useRealtime(activeHotelId, (e) => {
@@ -104,6 +114,28 @@ export function HomeScreen() {
   }
 
   const ops = data?.operations;
+  // Operational cards + drill-downs use the UNCAPPED front-desk overview (`fd`) so the number on a
+  // card ALWAYS equals the rows shown when you tap it. The dashboard endpoint hard-caps each list
+  // at 12 rows while its COUNT stays full → that's the "22 on the card, 12 on tap" bug. `fd` is the
+  // same uncapped + folio-accurate source the Front Desk screen / detail page use (so counts == the
+  // list length by construction). Falls back to the capped dashboard ops only when the user can't
+  // see the front-desk overview (no front_desk.booking.read).
+  const dayUseRows: OpsRow[] = fd
+    ? [...fd.dayUsePending, ...fd.dayUseActive.map((d): OpsRow => ({ id: d.id, code: d.code, guest: d.guest ?? "Guest", room: d.room, roomType: d.minutesLeft != null ? `${d.minutesLeft}m left` : "in-house", balance: 0 }))]
+    : [];
+  const opsSrc = fd ? {
+    counts: { arrivals: fd.arrivalsToday.length, departures: fd.departures.length, inHouse: fd.inHouse.length, upcoming: fd.upcoming.length, dayUse: dayUseRows.length },
+    arrivals: fd.arrivalsToday, departures: fd.departures, inHouse: fd.inHouse, upcoming: fd.upcoming,
+    dayUse: dayUseRows,
+    balances: fd.inHouse.filter((r) => r.balance > 0).sort((a, b) => b.balance - a.balance),
+    toCollect: fd.inHouse.reduce((s, r) => s + Math.max(0, r.balance), 0),
+  } : ops ? {
+    counts: { arrivals: ops.counts.arrivals, departures: ops.counts.departures, inHouse: ops.counts.inHouse, upcoming: ops.counts.upcoming, dayUse: 0 },
+    arrivals: ops.arrivals as OpsRow[], departures: ops.departures as OpsRow[], inHouse: ops.inHouse as OpsRow[], upcoming: ops.upcoming as OpsRow[],
+    dayUse: [] as OpsRow[],
+    balances: ops.balances as OpsRow[],
+    toCollect: ops.payment.totalOutstanding,
+  } : null;
   const managerial = data?.role?.isManagerial;
   const until = shiftUntil ? new Date(shiftUntil).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : null;
   const openBooking = (id: string) => { setGuestDrill(null); nav.navigate("BookingDetail", { bookingId: id }); };
@@ -177,12 +209,13 @@ export function HomeScreen() {
                   <StatTile label="Awaiting" value={hkSummary?.inspectionPending ?? 0} icon="eye-outline" accent={t.violet} onPress={() => nav.navigate("Housekeeping")} />
                   <StatTile label="Vacant clean" value={hkSummary?.cleanReady ?? 0} icon="checkmark-circle-outline" accent={t.green} onPress={() => nav.navigate("Housekeeping")} />
                 </View>
-              ) : deptKey === "front_office" && ops ? (
+              ) : deptKey === "front_office" && opsSrc ? (
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-                  <StatTile label="Arrivals" value={ops.counts.arrivals} icon="log-in-outline" accent={t.green} onPress={() => setGuestDrill({ title: "Arrivals today", rows: ops.arrivals })} />
-                  <StatTile label="Departures" value={ops.counts.departures} icon="log-out-outline" accent={t.amber} onPress={() => setGuestDrill({ title: "Departures today", rows: ops.departures })} />
-                  <StatTile label="In-house" value={ops.counts.inHouse} icon="people-outline" accent={t.violet} onPress={() => setGuestDrill({ title: "In-house now", rows: ops.inHouse })} />
-                  <StatTile label="Arriving · 7d" value={ops.counts.upcoming} icon="calendar-outline" accent={t.blue} onPress={() => setGuestDrill({ title: "Arriving next 7 days", rows: ops.upcoming })} />
+                  <StatTile label="Arrivals" value={opsSrc.counts.arrivals} icon="log-in-outline" accent={t.green} onPress={() => setGuestDrill({ title: "Arrivals today", rows: opsSrc.arrivals })} />
+                  <StatTile label="Departures" value={opsSrc.counts.departures} icon="log-out-outline" accent={t.amber} onPress={() => setGuestDrill({ title: "Departures today", rows: opsSrc.departures })} />
+                  <StatTile label="In-house" value={opsSrc.counts.inHouse} icon="people-outline" accent={t.violet} onPress={() => setGuestDrill({ title: "In-house now", rows: opsSrc.inHouse })} />
+                  <StatTile label="Arriving · 7d" value={opsSrc.counts.upcoming} icon="calendar-outline" accent={t.blue} onPress={() => setGuestDrill({ title: "Arriving next 7 days", rows: opsSrc.upcoming })} />
+                  {opsSrc.counts.dayUse > 0 ? <StatTile label="Day-use" value={opsSrc.counts.dayUse} icon="hourglass-outline" accent={t.teal} onPress={() => setGuestDrill({ title: "Day-use / hourly", rows: opsSrc.dayUse, balance: false })} /> : null}
                 </View>
               ) : deptKey === "maintenance" ? (
                 <View style={{ flexDirection: "row", gap: 12 }}>
@@ -208,16 +241,17 @@ export function HomeScreen() {
           ) : null}
 
           {/* Today at the hotel (managers) */}
-          {isManager && ops ? (
+          {isManager && opsSrc ? (
             <View>
               <SectionHeader title="Today at the hotel" icon="today-outline" accent={t.teal} />
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-                <StatTile label="Arrivals" value={ops.counts.arrivals} icon="log-in-outline" accent={t.green} onPress={() => setGuestDrill({ title: "Arrivals today", rows: ops.arrivals })} />
-                <StatTile label="In-house" value={ops.counts.inHouse} icon="people-outline" accent={t.violet} onPress={() => setGuestDrill({ title: "In-house now", rows: ops.inHouse })} />
-                <StatTile label="Departures" value={ops.counts.departures} icon="log-out-outline" accent={t.amber} onPress={() => setGuestDrill({ title: "Departures today", rows: ops.departures })} />
-                <StatTile label="Arriving · 7d" value={ops.counts.upcoming} icon="calendar-outline" accent={t.blue} onPress={() => setGuestDrill({ title: "Arriving next 7 days", rows: ops.upcoming })} />
-                <StatTile label="Open tickets" value={data?.tickets?.activeCount ?? 0} icon="construct-outline" accent={t.red} onPress={() => setTicketDrill({ title: "Open tickets", rows: data?.tickets?.active ?? [] })} />
-                {managerial ? <StatTile label="To collect" value={moneyShort(ops.payment.totalOutstanding)} icon="cash-outline" accent={t.teal} onPress={() => setGuestDrill({ title: "Balances to collect", rows: ops.balances, balance: true })} /> : <View style={{ flex: 1, minWidth: 100 }} />}
+                <StatTile label="Arrivals" value={opsSrc.counts.arrivals} icon="log-in-outline" accent={t.green} onPress={() => setGuestDrill({ title: "Arrivals today", rows: opsSrc.arrivals })} />
+                <StatTile label="In-house" value={opsSrc.counts.inHouse} icon="people-outline" accent={t.violet} onPress={() => setGuestDrill({ title: "In-house now", rows: opsSrc.inHouse })} />
+                <StatTile label="Departures" value={opsSrc.counts.departures} icon="log-out-outline" accent={t.amber} onPress={() => setGuestDrill({ title: "Departures today", rows: opsSrc.departures })} />
+                <StatTile label="Arriving · 7d" value={opsSrc.counts.upcoming} icon="calendar-outline" accent={t.blue} onPress={() => setGuestDrill({ title: "Arriving next 7 days", rows: opsSrc.upcoming })} />
+                {opsSrc.counts.dayUse > 0 ? <StatTile label="Day-use" value={opsSrc.counts.dayUse} icon="hourglass-outline" accent={t.teal} onPress={() => setGuestDrill({ title: "Day-use / hourly", rows: opsSrc.dayUse, balance: false })} /> : null}
+                <StatTile label="Open tickets" value={activeTickets?.length ?? data?.tickets?.activeCount ?? 0} icon="construct-outline" accent={t.red} onPress={() => setTicketDrill({ title: "Open tickets", rows: activeTickets ?? data?.tickets?.active ?? [] })} />
+                {managerial ? <StatTile label="To collect" value={moneyShort(opsSrc.toCollect)} icon="cash-outline" accent={t.teal} onPress={() => setGuestDrill({ title: "Balances to collect", rows: opsSrc.balances, balance: true, totalDue: opsSrc.toCollect })} /> : <View style={{ flex: 1, minWidth: 100 }} />}
               </View>
             </View>
           ) : null}
@@ -225,7 +259,17 @@ export function HomeScreen() {
           {/* Performance (managers) */}
           {isManager && data ? (
             <View>
-              <SectionHeader title={`Performance · last ${data.range.days}d`} icon="stats-chart-outline" accent={t.violet} />
+              <SectionHeader title="Performance" icon="stats-chart-outline" accent={t.violet} />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingBottom: 10 }}>
+                {RANGES.map((r) => {
+                  const active = range === r.key;
+                  return (
+                    <Pressable key={r.key} onPress={() => setRange(r.key)} style={{ backgroundColor: active ? t.primary : t.surface, borderWidth: 1, borderColor: active ? t.primary : t.border, borderRadius: radius.pill, paddingHorizontal: 13, paddingVertical: 6 }}>
+                      <Text style={{ fontSize: 12.5, fontWeight: "600", color: active ? "#fff" : t.muted }}>{r.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
                 <KpiCard label="Occupancy" value={pct(data.kpis.occupancy.value)} delta={data.kpis.occupancy.delta} icon="pie-chart-outline" accent={t.blue} onPress={() => setKpiDrill({ label: "Occupancy", value: pct(data.kpis.occupancy.value), delta: data.kpis.occupancy.delta, days: data.range.days })} />
                 <KpiCard label="ADR" value={money(data.kpis.adr.value)} delta={data.kpis.adr.delta} icon="pricetag-outline" accent={t.green} onPress={() => setKpiDrill({ label: "ADR (average daily rate)", value: money(data.kpis.adr.value), delta: data.kpis.adr.delta, days: data.range.days })} />
@@ -236,22 +280,22 @@ export function HomeScreen() {
           ) : null}
 
           {/* In-house preview (managers) */}
-          {isManager && ops?.inHouse?.length ? (
+          {isManager && opsSrc?.inHouse?.length ? (
             <View>
-              <SectionHeader title="In-house now" icon="home-outline" right={ops.inHouse.length > 4 ? (
-                <Pressable onPress={() => setGuestDrill({ title: "In-house now", rows: ops.inHouse })}><Text style={[typo.caption, { color: t.primary, fontWeight: "700" }]}>See all</Text></Pressable>
+              <SectionHeader title="In-house now" icon="home-outline" right={opsSrc.inHouse.length > 4 ? (
+                <Pressable onPress={() => setGuestDrill({ title: "In-house now", rows: opsSrc.inHouse })}><Text style={[typo.caption, { color: t.primary, fontWeight: "700" }]}>See all ({opsSrc.inHouse.length})</Text></Pressable>
               ) : undefined} />
               <Card>
-                {ops.inHouse.slice(0, 4).map((g, i, arr) => (
+                {opsSrc.inHouse.slice(0, 4).map((g, i, arr) => (
                   <Pressable key={g.id} onPress={() => openBooking(g.id)} style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: t.divider }, pressed ? { opacity: 0.7 } : null]}>
                     <View style={{ minWidth: 42, height: 28, borderRadius: 8, backgroundColor: tint(t.primary, "18"), alignItems: "center", justifyContent: "center", marginRight: 10, paddingHorizontal: 6 }}>
                       <Text style={[{ color: t.primary, fontWeight: "800", fontSize: 12 }, tabular]}>{g.room ?? "—"}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[typo.bodyStrong, { color: t.text }]} numberOfLines={1}>{g.guest}</Text>
-                      <Text style={[typo.caption, { color: t.muted }]}>{g.roomType} · {g.nights}n</Text>
+                      <Text style={[typo.caption, { color: t.muted }]} numberOfLines={1}>{g.roomType ?? g.roomTypeName ?? "Room"}</Text>
                     </View>
-                    {managerial ? <Text style={[{ color: g.balance > 0 ? t.text : t.green, fontWeight: "700", fontSize: 13 }, tabular]}>{g.balance > 0 ? money(g.balance) : "Paid"}</Text> : null}
+                    {managerial ? <Text style={[{ color: g.balance > 0 ? t.red : t.green, fontWeight: "700", fontSize: 13 }, tabular]}>{g.balance > 0 ? money(g.balance) : "Paid"}</Text> : null}
                     <Ionicons name="chevron-forward" size={16} color={t.faint} style={{ marginLeft: 6 }} />
                   </Pressable>
                 ))}
@@ -284,6 +328,7 @@ export function HomeScreen() {
         title={guestDrill?.title ?? ""}
         rows={guestDrill?.rows ?? []}
         showBalance={managerial}
+        totalDue={guestDrill?.totalDue}
         onOpenBooking={openBooking}
       />
 

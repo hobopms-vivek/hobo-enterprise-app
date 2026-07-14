@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 
 import { getBooking, getBookingGuests, listBookings, saveBookingGuests, type BookingGuest, type BookingItem } from "@/api/bookings";
+import { fixMediaUrl } from "@/api/uploads";
 import { useAuthStore } from "@/store/useAuthStore";
 import { bookingBadges } from "@/lib/bookingBadges";
 import { GuestEditSheet } from "@/components/GuestEditSheet";
@@ -72,7 +73,7 @@ export function BookingDetailScreen() {
   const GuestRow = ({ g, label, onPress }: { g?: Partial<BookingGuest>; label: string; onPress?: () => void }) => (
     <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, borderTopWidth: 1, borderTopColor: t.divider, opacity: pressed && onPress ? 0.7 : 1 })}>
       {g?.idPhotoUrl ? (
-        <Image source={{ uri: g.idPhotoUrl }} style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: t.surfaceSunken }} />
+        <Image source={{ uri: fixMediaUrl(g.idPhotoUrl) }} style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: t.surfaceSunken }} />
       ) : (
         <View style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: tint(t.primary, "18"), alignItems: "center", justifyContent: "center" }}>
           <Text style={{ color: t.primary, fontWeight: "800", fontSize: 16 }}>{(g?.fullName ?? "+").trim().charAt(0).toUpperCase()}</Text>
@@ -137,7 +138,7 @@ export function BookingDetailScreen() {
         {b.guest ? (
           <Card>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Avatar name={b.guest.fullName} uri={primaryRow?.idPhotoUrl ?? undefined} size={44} />
+              <Avatar name={b.guest.fullName} uri={fixMediaUrl(primaryRow?.idPhotoUrl)} size={44} />
               <View style={{ flex: 1 }}>
                 <Text style={[typo.bodyStrong, { color: t.text }]}>{[b.guest.title, b.guest.fullName].filter(Boolean).join(" ")}</Text>
                 {b.guest.phone ? <Text style={[typo.caption, { color: t.muted }]}>{b.guest.phone}</Text> : null}

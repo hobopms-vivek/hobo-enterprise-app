@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import type { BookingGuest } from "@/api/bookings";
 import { captureAndUpload, pickAndUpload } from "@/services/photo";
+import { fixMediaUrl } from "@/api/uploads";
 import { Button, Sheet } from "@/components/kit";
 import { radius, tint, type as typo, useTheme } from "@/theme";
 
@@ -30,6 +31,7 @@ export function GuestEditSheet({
   const [idType, setIdType] = useState<string | null>(null);
   const [idNumber, setIdNumber] = useState("");
   const [idPhotoUrl, setIdPhotoUrl] = useState<string | null>(null);
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -47,11 +49,14 @@ export function GuestEditSheet({
   async function grabId(fromCamera: boolean) {
     setUploading(true);
     try {
-      const url = fromCamera ? await captureAndUpload(hotelId) : await pickAndUpload(hotelId);
+      // `setLocalPreview` shows the picked/captured image instantly; on success we swap to the
+      // uploaded URL (and clear the local preview in `finally`).
+      const url = fromCamera ? await captureAndUpload(hotelId, setLocalPreview) : await pickAndUpload(hotelId, setLocalPreview);
       if (url) setIdPhotoUrl(url);
     } catch (e) { Alert.alert("Upload failed", e instanceof Error ? e.message : "Try again."); }
-    finally { setUploading(false); }
+    finally { setUploading(false); setLocalPreview(null); }
   }
+  const shownId = localPreview ?? fixMediaUrl(idPhotoUrl);
 
   async function save() {
     if (!fullName.trim()) { Alert.alert("Name required", "Enter the guest's name."); return; }
@@ -86,8 +91,16 @@ export function GuestEditSheet({
       <ScrollView style={{ maxHeight: 480 }} keyboardShouldPersistTaps="handled">
         {/* ID photo */}
         <View style={{ alignItems: "center", marginBottom: 14 }}>
-          {idPhotoUrl ? (
-            <Image source={{ uri: idPhotoUrl }} style={{ width: "100%", height: 150, borderRadius: radius.md, backgroundColor: t.surfaceSunken }} resizeMode="cover" />
+          {shownId ? (
+            <View style={{ width: "100%" }}>
+              <Image source={{ uri: shownId }} style={{ width: "100%", height: 170, borderRadius: radius.md, backgroundColor: t.surfaceSunken }} resizeMode="cover" />
+              {uploading ? (
+                <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.4)", borderRadius: radius.md }}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700", marginTop: 6 }}>Uploading…</Text>
+                </View>
+              ) : null}
+            </View>
           ) : (
             <View style={{ width: "100%", height: 110, borderRadius: radius.md, backgroundColor: t.surfaceSunken, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: t.border, borderStyle: "dashed" }}>
               <Ionicons name="card-outline" size={26} color={t.faint} />

@@ -1,5 +1,5 @@
-import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
-import { FlatList, RefreshControl, Text, View } from "react-native";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
@@ -7,15 +7,27 @@ import { listBanquetEvents, type BanquetEvent } from "@/api/banquet";
 import { ApiError } from "@/api/client";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useRealtime } from "@/realtime/useRealtime";
-import { Card, EmptyState, Screen, ScreenHeader, SegmentedTabs, Skeleton, StatusBadge } from "@/components/kit";
+import { Card, EmptyState, Screen, ScreenHeader, SearchBar, Skeleton, StatusBadge } from "@/components/kit";
 import { radius, space, tabular, tint, type as typo, useTheme } from "@/theme";
 import type { AppNav } from "@/navigation/types";
 
 const money = (n?: number) => `₹${Math.round(n || 0).toLocaleString("en-IN")}`;
 const dateStr = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) : "");
 const timeStr = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "");
-const isSameDay = (iso: string, ref: Date) => new Date(iso).toDateString() === ref.toDateString();
-type Tab = "today" | "upcoming" | "all";
+const PAGE = 20;
+
+// Status chips mirror the web banquet list (`?status=` / `?deleted=1`).
+const STATUS_FILTERS: { key: string; label: string }[] = [
+  { key: "", label: "All" },
+  { key: "ENQUIRY", label: "Enquiry" },
+  { key: "TENTATIVE", label: "Tentative" },
+  { key: "CONFIRMED", label: "Confirmed" },
+  { key: "CHECKED_IN", label: "Checked-in" },
+  { key: "CHECKED_OUT", label: "Checked-out" },
+  { key: "CANCELLED", label: "Cancelled" },
+  { key: "LOST", label: "Lost" },
+  { key: "DELETED", label: "🗑 Deleted" },
+];
 
 export function BanquetScreen() {
   const t = useTheme();
@@ -23,19 +35,24 @@ export function BanquetScreen() {
   const hotelId = useAuthStore((s) => s.activeHotelId)!;
   const [events, setEvents] = useState<BanquetEvent[] | null>(null);
   const [err, setErr] = useState<{ title: string; hint: string } | null>(null);
-  const [tab, setTab] = useState<Tab>("today");
+  const [status, setStatus] = useState<string>("");
+  const [q, setQ] = useState("");
+  const [qApplied, setQApplied] = useState("");
+  const [count, setCount] = useState(PAGE);
   const [refreshing, setRefreshing] = useState(false);
 
   const color: Record<string, string> = { CONFIRMED: t.green, CHECKED_IN: t.blue, CHECKED_OUT: t.muted, COMPLETED: t.muted, TENTATIVE: t.amber, ENQUIRY: t.muted, CANCELLED: t.red, LOST: t.red };
 
   useLayoutEffect(() => { nav.setOptions({ headerShown: false }); }, [nav]);
+  useEffect(() => { const id = setTimeout(() => setQApplied(q.trim().toLowerCase()), 300); return () => clearTimeout(id); }, [q]);
+
   const load = useCallback(async () => {
     try {
       setErr(null);
-      setEvents(await listBanquetEvents(hotelId));
+      const opts = status === "DELETED" ? { deleted: true } : status ? { status } : {};
+      setEvents(await listBanquetEvents(hotelId, opts));
     } catch (e) {
-      // Distinguish WHY it's empty: module off vs no permission vs load failure —
-      // otherwise a 403 looks identical to "no events" and hides the real cause.
+      // Distinguish WHY it's empty: module off vs no permission vs load failure.
       if (e instanceof ApiError && e.status === 403) {
         setErr(/module/i.test(e.message)
           ? { title: "Banquet module is off", hint: "Ask an admin to enable the Banquet module for this hotel." }
@@ -45,34 +62,52 @@ export function BanquetScreen() {
       }
       setEvents([]);
     }
-  }, [hotelId]);
+  }, [hotelId, status]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   useRealtime(hotelId, (e) => { if (e.type === "notification" || e.type.startsWith("banquet")) void load(); });
 
-  const rows = useMemo(() => {
-    const now = new Date();
+  // Reset the visible window when the filter or search changes.
+  useEffect(() => { setCount(PAGE); }, [status, qApplied]);
+
+  const filtered = useMemo(() => {
     const all = events ?? [];
-    if (tab === "today") return all.filter((e) => isSameDay(e.eventDate, now));
-    if (tab === "upcoming") return all.filter((e) => new Date(e.eventDate).getTime() >= new Date(now.toDateString()).getTime()).sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-    return all;
-  }, [events, tab]);
+    if (!qApplied) return all;
+    return all.filter((e) => [e.title, e.code, e.guest?.fullName, e.company?.name, e.hall?.name, e.eventType].some((s) => s && String(s).toLowerCase().includes(qApplied)));
+  }, [events, qApplied]);
+  const visible = filtered.slice(0, count);
 
   return (
     <Screen>
       <ScreenHeader title="Banquet" subtitle="View only" onBack={() => nav.goBack()} />
-      <View style={{ padding: space.base, paddingBottom: 10 }}>
-        <SegmentedTabs value={tab} onChange={setTab} tabs={[{ key: "today", label: "Today" }, { key: "upcoming", label: "Upcoming" }, { key: "all", label: "All" }]} />
+
+      <View style={{ paddingTop: space.base, gap: 10 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: space.base }}>
+          {STATUS_FILTERS.map((s) => {
+            const active = status === s.key;
+            return (
+              <Pressable key={s.key || "all"} onPress={() => setStatus(s.key)} style={{ backgroundColor: active ? t.primary : t.surface, borderWidth: 1, borderColor: active ? t.primary : t.border, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7 }}>
+                <Text style={{ fontSize: 12.5, fontWeight: "600", color: active ? "#fff" : t.muted }}>{s.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+        <View style={{ paddingHorizontal: space.base }}><SearchBar value={q} onChangeText={setQ} placeholder="Search title, code, host, company…" /></View>
+        {events !== null ? <Text style={[typo.caption, { color: t.muted, paddingHorizontal: space.base }]}>{filtered.length} event{filtered.length === 1 ? "" : "s"}{qApplied ? ` · “${qApplied}”` : ""}</Text> : null}
       </View>
 
       {events === null ? (
-        <View style={{ paddingHorizontal: space.base, gap: 12 }}>{[0, 1, 2].map((i) => <Skeleton key={i} height={110} radius={radius.lg} />)}</View>
+        <View style={{ paddingHorizontal: space.base, gap: 12, paddingTop: 10 }}>{[0, 1, 2].map((i) => <Skeleton key={i} height={110} radius={radius.lg} />)}</View>
       ) : (
         <FlatList
-          data={rows}
+          data={visible}
           keyExtractor={(e) => e.id}
-          contentContainerStyle={{ padding: space.base, paddingTop: 4, gap: 12 }}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: space.base, paddingTop: 8, gap: 12, flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={t.primary} />}
-          ListEmptyComponent={<EmptyState icon={err ? "lock-closed-outline" : "sparkles-outline"} title={err?.title ?? "No events"} hint={err?.hint ?? "Nothing in this view."} />}
+          onEndReached={() => { if (count < filtered.length) setCount((c) => c + PAGE); }}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={filtered.length > 0 && count >= filtered.length ? <Text style={[typo.caption, { color: t.faint, textAlign: "center", paddingVertical: 14 }]}>All {filtered.length} shown</Text> : null}
+          ListEmptyComponent={<EmptyState icon={err ? "lock-closed-outline" : "sparkles-outline"} title={err?.title ?? "No events"} hint={err?.hint ?? "Nothing matches this filter."} />}
           renderItem={({ item: e }) => {
             const bal = Math.max(0, (e.total ?? 0) - (e.advancePaid ?? 0));
             return (

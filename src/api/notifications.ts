@@ -11,10 +11,20 @@ export type AppNotification = {
   createdAt: string;
 };
 
-export async function listNotifications(hotelId: string, unreadOnly = false): Promise<{ items: AppNotification[]; unread: number }> {
-  return apiFetch<{ items: AppNotification[]; unread: number }>(`/hotels/${hotelId}/whatsapp/notifications${unreadOnly ? "?unread=1" : ""}`);
+/**
+ * GET /notifications — the canonical Notification Center endpoint (same one the web bell uses),
+ * with CURSOR pagination: `?filter=unread&take=N&cursor=<lastId>` → { items, unread, nextCursor }.
+ */
+export async function listNotifications(hotelId: string, opts?: { unreadOnly?: boolean; cursor?: string; take?: number }): Promise<{ items: AppNotification[]; unread: number; nextCursor: string | null }> {
+  const qs = new URLSearchParams();
+  if (opts?.unreadOnly) qs.set("filter", "unread");
+  if (opts?.cursor) qs.set("cursor", opts.cursor);
+  if (opts?.take) qs.set("take", String(opts.take));
+  const q = qs.toString();
+  const r = await apiFetch<{ items?: AppNotification[]; unread?: number; nextCursor?: string | null }>(`/hotels/${hotelId}/notifications${q ? `?${q}` : ""}`);
+  return { items: r.items ?? [], unread: r.unread ?? 0, nextCursor: r.nextCursor ?? null };
 }
 
 export async function markNotification(hotelId: string, opts: { id?: string; all?: boolean }): Promise<void> {
-  await apiFetch(`/hotels/${hotelId}/whatsapp/notifications`, { method: "PATCH", body: opts });
+  await apiFetch(`/hotels/${hotelId}/notifications`, { method: "PATCH", body: opts });
 }
