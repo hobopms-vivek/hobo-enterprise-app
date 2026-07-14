@@ -9,8 +9,7 @@
     "web": "expo start --web",
     "tunnel": "expo start --tunnel",
     "typecheck": "tsc --noEmit",
-    "update": "APP_VARIANT=production EXPO_PUBLIC_API_BASE_URL=https://hoboenterprise.in eas update --branch production --message \"$npm_config_m\"",
-    "update:staging": "APP_VARIANT=staging EXPO_PUBLIC_API_BASE_URL=https://staging.hoboenterprise.in eas update --branch staging --message \"$npm_config_m\"",
+    "update": "eas update --branch production --message \"$npm_config_m\"",
     "build:preview": "eas build --platform android --profile preview",
     "build:prod": "eas build --platform android --profile production",
     "submit": "eas submit --platform android --profile production --latest"

@@ -24,7 +24,7 @@
       },
       "env": {
         "APP_VARIANT": "staging",
-        "EXPO_PUBLIC_API_BASE_URL": "https://staging.hoboenterprise.in"
+        "EXPO_PUBLIC_API_BASE_URL": "https://hobo-enterprise-production.up.railway.app"
       }
     },
     "preview": {
@@ -35,7 +35,7 @@
       },
       "env": {
         "APP_VARIANT": "staging",
-        "EXPO_PUBLIC_API_BASE_URL": "https://staging.hoboenterprise.in"
+        "EXPO_PUBLIC_API_BASE_URL": "https://hobo-enterprise-production.up.railway.app"
       }
     },
     "production": {
