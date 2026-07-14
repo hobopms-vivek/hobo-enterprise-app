@@ -55,7 +55,6 @@ export function ManagerReportsScreen() {
                 <KpiCard label="Occupancy" value={pct(k.occupancy.value)} delta={k.occupancy.delta} icon="pie-chart-outline" accent={t.blue} />
                 <KpiCard label="ADR" value={money(k.adr.value)} delta={k.adr.delta} icon="pricetag-outline" accent={t.green} />
                 <KpiCard label="RevPAR" value={money(k.revpar.value)} delta={k.revpar.delta} icon="trending-up-outline" accent={t.violet} />
-                <KpiCard label="TRevPAR" value={money(k.trevpar.value)} delta={k.trevpar.delta} icon="bar-chart-outline" accent={t.teal} />
                 <KpiCard label="Total revenue" value={short(k.totalRevenue.value)} delta={k.totalRevenue.delta} icon="wallet-outline" accent={t.green} />
                 <KpiCard label="Room revenue" value={short(k.roomRevenue.value)} delta={k.roomRevenue.delta} icon="bed-outline" accent={t.blue} />
                 <KpiCard label="ALOS" value={`${k.alos.value.toFixed(1)}n`} delta={k.alos.delta} icon="moon-outline" accent={t.amber} />

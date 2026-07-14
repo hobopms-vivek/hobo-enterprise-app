@@ -87,3 +87,30 @@ export async function getNightAuditReport(hotelId: string, auditId: string): Pro
 /** Authenticated download paths (fed to the download service, which attaches the bearer token). */
 export const nightAuditXlsxPath = (hotelId: string, auditId: string) => `/hotels/${hotelId}/night-audit/${auditId}/report?format=xlsx`;
 export const nightAuditCformPath = (hotelId: string, auditId: string) => `/hotels/${hotelId}/night-audit/${auditId}/cform`;
+
+// ─── CA report ───
+
+export type CaFormula = "EFFECTIVE" | "STANDARD";
+/** The business-day boundary the report is anchored to (hotel timezone, night-audit start hour). */
+export type CaWindow = { startHour: number; timezone: string; fromTime: string; toTime: string };
+export type CaSummary = { window?: CaWindow; formula?: CaFormula };
+
+/**
+ * GET /ca/summary — the web CA-Reports page's data source.
+ *
+ * The app calls it for ONE reason: to learn the hotel's defaults. Send no time and no
+ * formula and the server answers with its own — `window.fromTime`/`toTime` (the hotel's
+ * night-audit `businessDayStartHour`, which falls back to 06:00, hence the "6 to 6" the
+ * web shows) and the hotel's revenue formula. The 6 is a SERVER-side setting, never
+ * hard-coded client-side: a hotel whose day starts at 04:00 must not see 06:00 here.
+ */
+export async function getCaSummary(
+  hotelId: string,
+  q: { from: string; to: string; fromTime?: string; toTime?: string; formula?: string },
+): Promise<CaSummary> {
+  const qs = new URLSearchParams({ from: q.from, to: q.to });
+  if (q.fromTime) qs.set("fromTime", q.fromTime);
+  if (q.toTime) qs.set("toTime", q.toTime);
+  if (q.formula) qs.set("formula", q.formula);
+  return apiFetch<CaSummary>(`/hotels/${hotelId}/ca/summary?${qs}`);
+}

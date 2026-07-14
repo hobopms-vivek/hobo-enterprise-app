@@ -25,12 +25,47 @@ export type TicketLog = {
   createdAt: string;
 };
 
+/** The booking behind a ticket — resolved server-side from the ticket's bookingId, or (for
+ *  staff-raised tickets, which carry no bookingId) from whoever is checked into its room.
+ *  `balance` is folio-accurate: room total + non-voided folio charges − paid. */
+export type TicketStay = {
+  id: string;
+  code: string;
+  status: string;
+  bookingType?: string | null;
+  checkInDate: string;
+  checkOutDate: string;
+  nights: number;
+  adults?: number | null;
+  children?: number | null;
+  room?: string | null;
+  roomType?: string | null;
+  ratePlan?: string | null;
+  mealPlan?: string | null;
+  source?: string | null;
+  paymentStatus?: string | null;
+  total: number;
+  paid: number;
+  balance: number;
+};
+
 export type TicketDetail = Ticket & {
   description?: string | null;
   roomId?: string | null;
+  channel?: string | null;
   reattemptCount?: number;
   deliveryStatus?: string | null;
   resolution?: string | null;
+  completionMinutes?: number | null;
+  isOverdue?: boolean;
+  assignedToName?: string | null;
+  assignedDeptName?: string | null;
+  createdByName?: string | null;
+  resolvedByName?: string | null;
+  botQuestionLabel?: string | null;
+  guest?: { id?: string; fullName: string; title?: string | null; phone: string | null; email?: string | null } | null;
+  room?: { id: string; roomNumber: string; roomType?: string | null } | null;
+  stay?: TicketStay | null;
   photosJson?: { step: string; url: string; at?: string }[] | null;
   logs: TicketLog[];
 };
@@ -79,6 +114,8 @@ export type CreateTaskInput = {
   priority?: string;
   departmentId?: string;
   roomId?: string;
+  guestId?: string;
+  assignedToId?: string;      // hand it straight to this person; omit to let the routing ladder pick
   description?: string;
   completionMinutes?: number; // D11 — per-task completion timer (manager pinged if overrun)
   slaMinutes?: number;        // escalation SLA override

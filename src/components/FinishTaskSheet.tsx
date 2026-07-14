@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Alert, Image, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { actOnTicket } from "@/api/tickets";
@@ -19,16 +19,30 @@ export function FinishTaskSheet({ visible, onClose, hotelId, ticketId, onFinishe
   const [note, setNote] = useState("");
   const [reason, setReason] = useState(REASONS[0]);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [localUri, setLocalUri] = useState<string | null>(null); // shown instantly while uploading
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // Fresh state each time the sheet opens; seed with any photos already captured on the ticket.
   useEffect(() => {
-    if (visible) { setTab("delivered"); setNote(""); setReason(REASONS[0]); setPhotos(initialPhotos ?? []); }
+    if (visible) { setTab("delivered"); setNote(""); setReason(REASONS[0]); setPhotos(initialPhotos ?? []); setLocalUri(null); setUploading(false); }
   }, [visible, initialPhotos]);
 
+  // `captureAndUpload` can throw (network, unsupported type, read-only role). It had no catch, so
+  // a failed upload was an unhandled rejection that React Native swallows — indistinguishable
+  // from a slow one: no spinner, no photo, no error. Preview + spinner + a real message now.
   async function addPhoto() {
-    const url = await captureAndUpload(hotelId);
-    if (url) setPhotos((p) => [...p, url]);
+    if (uploading) return;
+    setUploading(true);
+    try {
+      const url = await captureAndUpload(hotelId, setLocalUri);
+      if (url) setPhotos((p) => [...p, url]);
+    } catch (e) {
+      Alert.alert("Upload failed", e instanceof Error ? e.message : "Please try again.");
+    } finally {
+      setUploading(false);
+      setLocalUri(null);
+    }
   }
 
   async function submit(delivered: boolean) {
@@ -70,8 +84,20 @@ export function FinishTaskSheet({ visible, onClose, hotelId, ticketId, onFinishe
               {photos.map((url) => (
                 <Image key={url} source={{ uri: fixMediaUrl(url) }} style={{ width: 64, height: 64, borderRadius: radius.md }} />
               ))}
-              <Pressable onPress={addPhoto} style={{ width: 64, height: 64, borderRadius: radius.md, borderWidth: 1.5, borderStyle: "dashed", borderColor: t.border, alignItems: "center", justifyContent: "center", backgroundColor: tint(t.primary, "0F") }}>
-                <Ionicons name="camera-outline" size={22} color={t.primary} />
+              {localUri ? (
+                <View style={{ width: 64, height: 64, borderRadius: radius.md, overflow: "hidden" }}>
+                  <Image source={{ uri: localUri }} style={{ width: 64, height: 64 }} />
+                  <View style={{ ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "#0006" }}>
+                    <ActivityIndicator color="#fff" />
+                  </View>
+                </View>
+              ) : null}
+              <Pressable
+                onPress={addPhoto}
+                disabled={uploading}
+                style={{ width: 64, height: 64, borderRadius: radius.md, borderWidth: 1.5, borderStyle: "dashed", borderColor: t.border, alignItems: "center", justifyContent: "center", backgroundColor: tint(t.primary, "0F"), opacity: uploading ? 0.5 : 1 }}
+              >
+                {uploading && !localUri ? <ActivityIndicator color={t.primary} /> : <Ionicons name="camera-outline" size={22} color={t.primary} />}
               </Pressable>
             </View>
           </View>
@@ -79,7 +105,8 @@ export function FinishTaskSheet({ visible, onClose, hotelId, ticketId, onFinishe
             <Text style={[typo.label, { color: t.muted, marginBottom: 6 }]}>Note (optional)</Text>
             <TextInput value={note} onChangeText={setNote} placeholder="Details about the delivery…" placeholderTextColor={t.faint} multiline style={{ minHeight: 64, borderWidth: 1, borderColor: t.border, borderRadius: radius.md, padding: 12, color: t.text, textAlignVertical: "top", backgroundColor: t.surface }} />
           </View>
-          <Button title="Mark completed" variant="success" icon="checkmark" loading={busy} onPress={() => submit(true)} />
+          {/* Blocked while a photo is still uploading — submitting now would send `photos` without it. */}
+          <Button title="Mark completed" variant="success" icon="checkmark" loading={busy} disabled={uploading} onPress={() => submit(true)} />
         </View>
       ) : (
         <View style={{ gap: 14 }}>

@@ -92,7 +92,7 @@ export function IconChip({ icon, color, size = 36 }: { icon: Ion; color: string;
 export function StatusBadge({ label, color, solid = false }: { label: string; color: string; solid?: boolean }) {
   return (
     <View style={{ backgroundColor: solid ? color : tint(color, "22"), borderRadius: radius.pill, paddingHorizontal: 9, paddingVertical: 3, alignSelf: "flex-start" }}>
-      <Text style={{ color: solid ? "#fff" : color, fontSize: 11, fontWeight: "700", textTransform: "capitalize" }}>{label}</Text>
+      <Text numberOfLines={1} style={{ color: solid ? "#fff" : color, fontSize: 11, fontWeight: "700", textTransform: "capitalize" }}>{label}</Text>
     </View>
   );
 }

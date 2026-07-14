@@ -42,7 +42,40 @@ export type Expense = {
   createdAt: string;
 };
 
-export async function listExpenses(hotelId: string): Promise<{ items: Expense[]; total: number }> {
-  const r = await apiFetch<{ items?: Expense[]; total?: number }>(`/hotels/${hotelId}/expenses`);
+export type ExpenseQuery = { from?: string; to?: string; head?: string; mop?: string };
+
+/**
+ * GET /expenses — the same call the web CA-Reports expense ledger makes.
+ *
+ * `to` is INCLUSIVE here (the route ends the window at `${to}T23:59:59.999Z`), unlike
+ * `rangeToWindow()` in src/lib/range.ts whose `to` is exclusive — don't cross the wires.
+ * `total` is the server's sum over the FILTERED set, so it always matches the rows shown.
+ */
+export async function listExpenses(hotelId: string, q: ExpenseQuery = {}): Promise<{ items: Expense[]; total: number }> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(q)) if (v) qs.set(k, v);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const r = await apiFetch<{ items?: Expense[]; total?: number }>(`/hotels/${hotelId}/expenses${suffix}`);
   return { items: r.items ?? [], total: r.total ?? 0 };
+}
+
+// ─── Rooms + guest lookup (for the task-create pickers; mirrors the web drawer's sources) ───
+
+export type RoomOption = { id: string; roomNumber: string };
+
+/** GET /config/rooms — the room list the web create-task drawer picks from. */
+export async function listRoomOptions(hotelId: string): Promise<RoomOption[]> {
+  const r = await apiFetch<{ items?: RoomOption[] }>(`/hotels/${hotelId}/config/rooms`).catch(() => ({ items: [] as RoomOption[] }));
+  return r.items ?? [];
+}
+
+export type GuestOption = { id: string; fullName: string | null; title?: string | null; phone: string | null };
+
+/** GET /guests?q= — same debounced search the web create-task drawer uses. */
+export async function searchGuests(hotelId: string, q: string): Promise<GuestOption[]> {
+  const term = q.trim();
+  if (!term) return [];
+  const qs = new URLSearchParams({ q: term, pageSize: "8" });
+  const r = await apiFetch<{ items?: GuestOption[] }>(`/hotels/${hotelId}/guests?${qs}`).catch(() => ({ items: [] as GuestOption[] }));
+  return (r.items ?? []).slice(0, 8);
 }

@@ -112,9 +112,9 @@ export function BanquetScreen() {
             const bal = Math.max(0, (e.total ?? 0) - (e.advancePaid ?? 0));
             return (
               <Card onPress={() => nav.navigate("BanquetDetail", { eventId: e.id, code: e.code })}>
-                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-                  <Text style={[typo.label, { color: t.muted }, tabular]}>{e.code}</Text>
-                  <View style={{ marginLeft: "auto" }}><StatusBadge label={e.status.replace(/_/g, " ")} color={color[e.status] ?? t.muted} /></View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <Text style={[typo.label, { color: t.muted, flexShrink: 1 }, tabular]} numberOfLines={1}>{e.code}</Text>
+                  <View style={{ marginLeft: "auto", flexShrink: 0 }}><StatusBadge label={e.status.replace(/_/g, " ")} color={color[e.status] ?? t.muted} /></View>
                 </View>
                 <Text style={[typo.h2, { color: t.text }]} numberOfLines={1}>{e.title || e.guest?.fullName || e.eventType || "Event"}</Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 }}>
@@ -124,12 +124,14 @@ export function BanquetScreen() {
                   </Text>
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
-                  <Ionicons name="calendar-outline" size={14} color={t.muted} />
-                  <Text style={[typo.caption, { color: t.muted }, tabular]}>{dateStr(e.eventDate)}{e.startTime ? ` · ${timeStr(e.startTime)}${e.endTime ? `–${timeStr(e.endTime)}` : ""}` : ""}</Text>
-                  {e.guaranteedPax ? <Text style={[typo.caption, { color: t.muted }, tabular]}>· {e.guaranteedPax} pax</Text> : null}
+                  <Ionicons name="calendar-outline" size={14} color={t.muted} style={{ flexShrink: 0 }} />
+                  {/* The date is the only elastic part: it truncates so the pax count and the
+                      "due" pill keep their full width instead of being pushed off the card. */}
+                  <Text style={[typo.caption, { color: t.muted, flexShrink: 1 }, tabular]} numberOfLines={1}>{dateStr(e.eventDate)}{e.startTime ? ` · ${timeStr(e.startTime)}${e.endTime ? `–${timeStr(e.endTime)}` : ""}` : ""}</Text>
+                  {e.guaranteedPax ? <Text style={[typo.caption, { color: t.muted, flexShrink: 0 }, tabular]} numberOfLines={1}>· {e.guaranteedPax} pax</Text> : null}
                   {bal > 0 ? (
-                    <View style={{ marginLeft: "auto", backgroundColor: tint(t.amber, "22"), borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
-                      <Text style={[{ color: t.amber, fontSize: 11, fontWeight: "700" }, tabular]}>{money(bal)} due</Text>
+                    <View style={{ marginLeft: "auto", flexShrink: 0, backgroundColor: tint(t.amber, "22"), borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                      <Text style={[{ color: t.amber, fontSize: 11, fontWeight: "700" }, tabular]} numberOfLines={1}>{money(bal)} due</Text>
                     </View>
                   ) : null}
                 </View>

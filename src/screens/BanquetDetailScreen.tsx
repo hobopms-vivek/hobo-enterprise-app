@@ -73,12 +73,21 @@ export function BanquetDetailScreen() {
           <Text style={[typo.h1, { color: t.text }]}>{e.title || e.guest?.fullName || cap(e.eventType) || "Event"}</Text>
           <Text style={[typo.caption, { color: t.muted, marginTop: -6 }]}>{[cap(e.eventType), dstr(e.eventDate)].filter(Boolean).join(" · ")}</Text>
 
-          {/* KPI strip */}
-          <View style={{ flexDirection: "row", gap: 10 }}>
+          {/* KPI strip. Four `flex: 1` tiles left ~60pt of text width, so lakh-scale amounts hard-
+              truncated to "₹1,25,0…". Tiles now shrink the font to fit and wrap to two rows when
+              even that is not enough, so the full amount is always readable. */}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             {[["Total", money(e.total)], ["Advance", money(e.advancePaid)], ["Balance", balance > 0 ? money(balance) : "Paid"], ["Pax", String(billablePax || e.guaranteedPax || "—")]].map(([lbl, val], i) => (
-              <View key={lbl} style={{ flex: 1, backgroundColor: t.surface, borderWidth: 1, borderColor: t.border, borderRadius: radius.lg, padding: 11, alignItems: "center" }}>
-                <Text style={[{ fontSize: 15.5, fontWeight: "800", color: i === 2 ? (balance > 0 ? t.red : t.green) : t.text }, tabular]} numberOfLines={1}>{val}</Text>
-                <Text style={[typo.caption, { color: t.muted, marginTop: 2 }]}>{lbl}</Text>
+              <View key={lbl} style={{ flexGrow: 1, flexBasis: "22%", minWidth: 76, backgroundColor: t.surface, borderWidth: 1, borderColor: t.border, borderRadius: radius.lg, paddingVertical: 11, paddingHorizontal: 6, alignItems: "center" }}>
+                <Text
+                  style={[{ fontSize: 15.5, fontWeight: "800", color: i === 2 ? (balance > 0 ? t.red : t.green) : t.text }, tabular]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.6}
+                >
+                  {val}
+                </Text>
+                <Text style={[typo.caption, { color: t.muted, marginTop: 2 }]} numberOfLines={1}>{lbl}</Text>
               </View>
             ))}
           </View>
